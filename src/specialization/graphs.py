@@ -1,0 +1,298 @@
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+
+import structlog
+from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph as CompiledGraph
+
+from src.specialization.llm_factory import get_llm_client
+from src.specialization.nodes_rl import (
+    check_forgetting,
+    check_stop,
+    curriculum_step,
+    evaluate_batch,
+    ewc_rollback,
+    finalize_rl,
+    generate_variant,
+    lazy_gradient,
+    review_code_batch,
+    compute_reward,
+    route_to_variants,
+    select_best_and_update,
+)
+from src.specialization.nodes_sft import (
+    constitutional_critique,
+    extract_patterns,
+    load_demonstrations,
+    rewrite_prompt,
+    update_skills_sft,
+)
+from src.specialization.state import OuterState, RLState, SFTState
+from src.verifier import pipeline
+
+logger = structlog.get_logger(__name__)
+
+TRAINING_BUGS_DIR = "data/training_bugs"
+HELD_OUT_DIR = "data/held_out_bugs"
+GROUND_TRUTH_PATH = "data/ground_truth.json"
+
+_eval_client = None
+
+
+def _get_eval_client():
+    global _eval_client
+    if _eval_client is None:
+        _eval_client = get_llm_client("agent_review")
+    return _eval_client
+
+
+def build_sft_subgraph() -> CompiledGraph:
+    graph: StateGraph = StateGraph(SFTState)
+    graph.add_node("load_demonstrations", load_demonstrations)
+    graph.add_node("extract_patterns", extract_patterns)
+    graph.add_node("constitutional_critique", constitutional_critique)
+    graph.add_node("rewrite_prompt", rewrite_prompt)
+    graph.add_node("update_skills_sft", update_skills_sft)
+
+    graph.add_edge(START, "load_demonstrations")
+    graph.add_edge("load_demonstrations", "extract_patterns")
+    graph.add_edge("extract_patterns", "constitutional_critique")
+    graph.add_edge("constitutional_critique", "rewrite_prompt")
+    graph.add_edge("rewrite_prompt", "update_skills_sft")
+    graph.add_edge("update_skills_sft", END)
+
+    return graph.compile()
+
+
+def build_rl_subgraph() -> CompiledGraph:
+    graph: StateGraph = StateGraph(RLState)
+    graph.add_node("curriculum_step", curriculum_step)
+    graph.add_node("review_code_batch", review_code_batch)
+    graph.add_node("compute_reward", compute_reward)
+    graph.add_node("ewc_rollback", ewc_rollback)
+    graph.add_node("lazy_gradient", lazy_gradient)
+    graph.add_node("generate_variant", generate_variant)
+    graph.add_node("evaluate_batch", evaluate_batch)
+    graph.add_node("select_best_and_update", select_best_and_update)
+    graph.add_node("finalize_rl", finalize_rl)
+
+    graph.add_edge(START, "curriculum_step")
+    graph.add_edge("curriculum_step", "review_code_batch")
+    graph.add_edge("review_code_batch", "compute_reward")
+    graph.add_conditional_edges(
+        "compute_reward",
+        check_forgetting,
+        {"ewc_rollback": "ewc_rollback", "lazy_gradient": "lazy_gradient"},
+    )
+    graph.add_edge("ewc_rollback", "lazy_gradient")
+    graph.add_conditional_edges("lazy_gradient", route_to_variants)
+    graph.add_edge("generate_variant", "evaluate_batch")
+    graph.add_edge("evaluate_batch", "select_best_and_update")
+    graph.add_conditional_edges(
+        "select_best_and_update",
+        check_stop,
+        {"continue": "curriculum_step", "end": "finalize_rl"},
+    )
+    graph.add_edge("finalize_rl", END)
+
+    return graph.compile()
+
+
+def build_outer_graph(
+    checkpoint_path: str = "experiments/checkpoints.db",
+    human_review: bool = False,
+) -> CompiledGraph:
+    parent = os.path.dirname(checkpoint_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+    sft_graph = build_sft_subgraph()
+    rl_graph = build_rl_subgraph()
+    conn = sqlite3.connect(checkpoint_path, check_same_thread=False)
+    memory = SqliteSaver(conn)
+
+    def route_condition(state: OuterState) -> str:
+        return state["condition"]
+
+    graph: StateGraph = StateGraph(OuterState)
+    graph.add_node("sft_subgraph", sft_graph)
+    graph.add_node("rl_subgraph", rl_graph)
+    graph.add_node("evaluate_final", evaluate_final_node)
+
+    graph.add_conditional_edges(
+        START,
+        route_condition,
+        {"sft": "sft_subgraph", "rl": "rl_subgraph"},
+    )
+    graph.add_edge("sft_subgraph", "evaluate_final")
+    graph.add_edge("rl_subgraph", "evaluate_final")
+    graph.add_edge("evaluate_final", END)
+
+    interrupt: list[str] = ["sft_subgraph", "rl_subgraph"] if human_review else []
+    return graph.compile(checkpointer=memory, interrupt_before=interrupt)
+
+
+def evaluate_final_node(state: OuterState) -> dict:
+    baseline_prompt = state["stem_config"].get("system_prompt", "")
+    final_prompt = state.get("final_prompt") or baseline_prompt
+
+    gt_map = _load_ground_truth()
+    training_files = _list_py_files(TRAINING_BUGS_DIR)
+    held_out_files = _list_py_files(HELD_OUT_DIR)
+
+    baseline_results = _run_evaluation(baseline_prompt, training_files + held_out_files, gt_map)
+    specialized_results = _run_evaluation(final_prompt, training_files + held_out_files, gt_map)
+
+    in_dist_baseline = [r for r in baseline_results if r["file_path"] in set(training_files)]
+    ood_baseline = [r for r in baseline_results if r["file_path"] in set(held_out_files)]
+    in_dist_spec = [r for r in specialized_results if r["file_path"] in set(training_files)]
+    ood_spec = [r for r in specialized_results if r["file_path"] in set(held_out_files)]
+
+    def mean_f1(results: list[dict]) -> float:
+        scores = [r["f1"] for r in results if "f1" in r]
+        return sum(scores) / len(scores) if scores else 0.0
+
+    def silent_count(results: list[dict]) -> int:
+        return sum(1 for r in results if r.get("reward", 0.0) == 0.0)
+
+    baseline_in_f1 = mean_f1(in_dist_baseline)
+    baseline_ood_f1 = mean_f1(ood_baseline)
+    spec_in_f1 = mean_f1(in_dist_spec)
+    spec_ood_f1 = mean_f1(ood_spec)
+
+    perf_history: list[float] = state.get("performance_history") or []
+    condition = state.get("condition", "unknown")
+
+    if condition == "sft":
+        pareto_data = [(0, baseline_in_f1), (1, spec_in_f1)]
+    else:
+        pareto_data = list(enumerate(perf_history))
+
+    generalization_gap = spec_in_f1 - spec_ood_f1
+    improvement = spec_ood_f1 - baseline_ood_f1
+
+    logger.info(
+        "evaluate_final",
+        generalization_gap=generalization_gap,
+        improvement=improvement,
+        spec_ood_f1=spec_ood_f1,
+        baseline_ood_f1=baseline_ood_f1,
+    )
+    return {
+        "evaluation_results": {
+            "baseline": {
+                "in_dist_f1": baseline_in_f1,
+                "ood_f1": baseline_ood_f1,
+                "silent_failures": silent_count(ood_baseline),
+            },
+            "specialized": {
+                "in_dist_f1": spec_in_f1,
+                "ood_f1": spec_ood_f1,
+                "silent_failures": silent_count(ood_spec),
+            },
+            "generalization_gap": generalization_gap,
+            "improvement": improvement,
+            "pareto_data": pareto_data,
+        }
+    }
+
+
+def _run_evaluation(
+    prompt: str,
+    files: list[str],
+    gt_map: dict[str, dict],
+) -> list[dict]:
+    from src.stem.models import LLMMessage
+    from src.verifier.models import GroundTruth
+
+    client = _get_eval_client()
+    results: list[dict] = []
+
+    system = (
+        f"{prompt}\n\n"
+        "Review this Python file for bugs. "
+        "Return JSON: {\"issues\": [{\"line\": int, \"bug_type\": str, \"description\": str, \"confidence\": float}], "
+        "\"overall_confidence\": float, \"summary\": str}"
+    )
+
+    for file_path in files:
+        gt_dict = gt_map.get(file_path)
+        if gt_dict is None:
+            continue
+        try:
+            with open(file_path, encoding="utf-8") as f:
+                code = f.read()
+        except OSError:
+            continue
+
+        gt = GroundTruth(
+            file_path=gt_dict["file_path"],
+            bug_type=gt_dict["bug_type"],
+            bug_line=int(gt_dict["bug_line"]),
+            bug_description=gt_dict.get("bug_description", ""),
+            detectable_by_pylint=bool(gt_dict.get("detectable_by_pylint", False)),
+            detectable_by_ast=bool(gt_dict.get("detectable_by_ast", False)),
+            detectable_by_execution=bool(gt_dict.get("detectable_by_execution", False)),
+        )
+
+        messages = [
+            LLMMessage(role="system", content=system),
+            LLMMessage(role="user", content=code),
+        ]
+        try:
+            raw = client.complete_json(messages)
+        except Exception as exc:
+            logger.warning("evaluate_final.llm_error", path=file_path, error=str(exc))
+            continue
+
+        verifier_output = pipeline.run_all_verifiers(code, gt)
+        reward = verifier_output.shaped_reward
+
+        issues = raw.get("issues", [])
+        detected_bug_types = {i.get("bug_type", "") for i in issues}
+        tp = 1 if gt.bug_type in detected_bug_types else 0
+        fp = max(0, len(issues) - tp)
+        fn = 1 - tp
+
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if (precision + recall) > 0
+            else 0.0
+        )
+
+        results.append({
+            "file_path": file_path,
+            "reward": reward,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+        })
+
+    return results
+
+
+def _load_ground_truth() -> dict[str, dict]:
+    if not os.path.isfile(GROUND_TRUTH_PATH):
+        return {}
+    try:
+        with open(GROUND_TRUTH_PATH, encoding="utf-8") as f:
+            records: list[dict] = json.load(f)
+        return {r["file_path"]: r for r in records if "file_path" in r}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _list_py_files(directory: str) -> list[str]:
+    if not os.path.isdir(directory):
+        return []
+    return sorted(
+        os.path.join(directory, f)
+        for f in os.listdir(directory)
+        if f.endswith(".py")
+    )
