@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stem-agent"
+version = "0.1.0"
+requires-python = ">=3.11"
+description = "Stem agent: self-configuring code review agent with outcome-based specialization"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-v --tb=short --cov=src --cov-report=term-missing"
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+
+[tool.setuptools.packages.find]
+where = ["src"]
