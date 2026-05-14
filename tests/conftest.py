@@ -3,6 +3,69 @@ import pytest
 from src.verifier.models import GroundTruth
 
 
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    """Hook into pytest to emit Rich-colored pass/fail output."""
+    if report.when == "call":
+        from src.logging.console import log_test_result
+        log_test_result(
+            test_name=report.nodeid.split("::")[-1],
+            passed=report.passed,
+            duration_ms=report.duration * 1000,
+            detail=str(report.longrepr)[:100] if report.failed else None,
+        )
+
+
+def _make_file_score(f1: float = 0.5, reward: float = 0.5, file_path: str = "x.py"):
+    from src.evaluation.metrics import FileScore
+    return FileScore(
+        file_path=file_path,
+        precision=f1,
+        recall=f1,
+        f1=f1,
+        issues_found=1,
+        issues_expected=1,
+        false_positives=0,
+        reward=reward,
+        is_silent_failure=(reward == 0.0),
+    )
+
+
+def _make_condition(condition: str, f1: float = 0.5):
+    from src.evaluation.metrics import ConditionResult
+    scores = [_make_file_score(f1, f1, f"file_{i}.py") for i in range(4)]
+    return ConditionResult(
+        condition=condition,
+        file_scores=scores,
+        mean_precision=f1,
+        mean_recall=f1,
+        mean_f1=f1,
+        mean_reward=f1,
+        silent_failure_count=0,
+        silent_failure_rate=0.0,
+    )
+
+
+@pytest.fixture
+def mock_experiment_result():
+    """Minimal valid ExperimentResult for testing display functions."""
+    from src.evaluation.metrics import ExperimentResult
+    return ExperimentResult(
+        baseline=_make_condition("baseline", 0.4),
+        sft=_make_condition("sft", 0.6),
+        rl=_make_condition("rl", 0.7),
+        generalization_gap_baseline=0.2,
+        generalization_gap_sft=0.15,
+        generalization_gap_rl=0.1,
+        rl_improvement_over_sft=0.1,
+        pareto_data_rl=[(0, 0.4), (1, 0.5), (2, 0.6), (3, 0.7)],
+        pareto_data_sft=[(0, 0.4), (1, 0.6)],
+        calibration_ece_sft=0.12,
+        calibration_ece_rl=0.08,
+        skill_growth_rl=[(0, 2), (1, 4), (2, 6)],
+        timestamp="2026-05-14T00:00:00",
+    )
+
+
 @pytest.fixture
 def clean_python_code() -> str:
     """Valid 20-line Python function with no bugs."""
