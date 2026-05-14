@@ -1,0 +1,5 @@
+def mode(values: list[int]) -> int:
+    counts: dict[int, int] = {}
+    for v in values:
+        counts[v] = counts.get(v, 0) + 1
+    return max(counts, key=lambda k: counts[k])

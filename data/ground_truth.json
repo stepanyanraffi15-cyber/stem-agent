@@ -1,0 +1,502 @@
+[
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_undef_001.py",
+    "bug_type": "undefined_variable",
+    "bug_line": 4,
+    "bug_description": "Variable 'tax_rate' used before definition",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": true,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_undef_002.py",
+    "bug_type": "undefined_variable",
+    "bug_line": 2,
+    "bug_description": "Variable 'prefix' used before definition",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": true,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_undef_003.py",
+    "bug_type": "undefined_variable",
+    "bug_line": 2,
+    "bug_description": "Variable 'scale_factor' used before definition",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": true,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_undef_004.py",
+    "bug_type": "undefined_variable",
+    "bug_line": 2,
+    "bug_description": "Variable 'discount_pct' used before definition",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": true,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_undef_005.py",
+    "bug_type": "undefined_variable",
+    "bug_line": 2,
+    "bug_description": "Variable 'repeat_count' used before definition",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": true,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_undef_006.py",
+    "bug_type": "undefined_variable",
+    "bug_line": 2,
+    "bug_description": "Variable 'base_url' used before definition",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": true,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_mutable_001.py",
+    "bug_type": "mutable_default_argument",
+    "bug_line": 1,
+    "bug_description": "Mutable default argument [] shared across calls",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": true,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_mutable_002.py",
+    "bug_type": "mutable_default_argument",
+    "bug_line": 1,
+    "bug_description": "Mutable default argument [] shared across calls",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": true,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_mutable_003.py",
+    "bug_type": "mutable_default_argument",
+    "bug_line": 1,
+    "bug_description": "Mutable default argument [] shared across calls",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": true,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_mutable_004.py",
+    "bug_type": "mutable_default_argument",
+    "bug_line": 1,
+    "bug_description": "Mutable default argument [] shared across calls",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": true,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_mutable_005.py",
+    "bug_type": "mutable_default_argument",
+    "bug_line": 1,
+    "bug_description": "Mutable default argument {} shared across calls",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": true,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_mutable_006.py",
+    "bug_type": "mutable_default_argument",
+    "bug_line": 1,
+    "bug_description": "Mutable default argument [] shared across calls",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": true,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_bare_001.py",
+    "bug_type": "bare_except",
+    "bug_line": 4,
+    "bug_description": "Bare except catches all exceptions including KeyboardInterrupt",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": true,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_bare_002.py",
+    "bug_type": "bare_except",
+    "bug_line": 5,
+    "bug_description": "Bare except catches all exceptions including KeyboardInterrupt",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": true,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_bare_003.py",
+    "bug_type": "bare_except",
+    "bug_line": 4,
+    "bug_description": "Bare except catches all exceptions including KeyboardInterrupt",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": true,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_bare_004.py",
+    "bug_type": "bare_except",
+    "bug_line": 4,
+    "bug_description": "Bare except catches all exceptions including KeyboardInterrupt",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": true,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_bare_005.py",
+    "bug_type": "bare_except",
+    "bug_line": 6,
+    "bug_description": "Bare except catches all exceptions including KeyboardInterrupt",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": true,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_bare_006.py",
+    "bug_type": "bare_except",
+    "bug_line": 4,
+    "bug_description": "Bare except catches all exceptions including KeyboardInterrupt",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": true,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_none_001.py",
+    "bug_type": "equality_none_check",
+    "bug_line": 2,
+    "bug_description": "Use 'is None' not '== None' for None comparison",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_none_002.py",
+    "bug_type": "equality_none_check",
+    "bug_line": 2,
+    "bug_description": "Use 'is None' not '== None' for None comparison",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_none_003.py",
+    "bug_type": "equality_none_check",
+    "bug_line": 2,
+    "bug_description": "Use 'is None' not '== None' for None comparison",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_none_004.py",
+    "bug_type": "equality_none_check",
+    "bug_line": 2,
+    "bug_description": "Use 'is not None' not '!= None' for None comparison",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_none_005.py",
+    "bug_type": "equality_none_check",
+    "bug_line": 2,
+    "bug_description": "Use 'is None' not '== None' for None comparison",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_none_006.py",
+    "bug_type": "equality_none_check",
+    "bug_line": 3,
+    "bug_description": "Use 'is not None' not '!= None' for None comparison",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_shadow_001.py",
+    "bug_type": "shadowed_builtin",
+    "bug_line": 1,
+    "bug_description": "Parameter 'list' shadows built-in",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_shadow_002.py",
+    "bug_type": "shadowed_builtin",
+    "bug_line": 1,
+    "bug_description": "Parameter 'input' shadows built-in",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_shadow_003.py",
+    "bug_type": "shadowed_builtin",
+    "bug_line": 1,
+    "bug_description": "Parameter 'type' shadows built-in",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_shadow_004.py",
+    "bug_type": "shadowed_builtin",
+    "bug_line": 1,
+    "bug_description": "Parameter 'id' shadows built-in",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_shadow_005.py",
+    "bug_type": "shadowed_builtin",
+    "bug_line": 1,
+    "bug_description": "Parameter 'format' shadows built-in",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/training_bugs/train_shadow_006.py",
+    "bug_type": "shadowed_builtin",
+    "bug_line": 1,
+    "bug_description": "Parameter 'str' shadows built-in",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "training"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_obo_001.py",
+    "bug_type": "off_by_one",
+    "bug_line": 2,
+    "bug_description": "range(len(items) - 1) skips last element",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_obo_002.py",
+    "bug_type": "off_by_one",
+    "bug_line": 2,
+    "bug_description": "Off-by-one in slice end index discards last element",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_obo_003.py",
+    "bug_type": "off_by_one",
+    "bug_line": 3,
+    "bug_description": "Inner range(n - 1) off-by-one prevents last element from pairing",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_obo_004.py",
+    "bug_type": "off_by_one",
+    "bug_line": 3,
+    "bug_description": "range(-1, 1) misses the +1 offset neighbor",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_obo_005.py",
+    "bug_type": "off_by_one",
+    "bug_line": 3,
+    "bug_description": "range(len(data) - window) off-by-one drops last window",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_wrv_001.py",
+    "bug_type": "wrong_return_variable",
+    "bug_line": 5,
+    "bug_description": "Returns (a, a) instead of (a, b) after swap",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_wrv_002.py",
+    "bug_type": "wrong_return_variable",
+    "bug_line": 9,
+    "bug_description": "Returns (lo, lo) instead of (lo, hi)",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_wrv_003.py",
+    "bug_type": "wrong_return_variable",
+    "bug_line": 9,
+    "bug_description": "Returns (evens, evens) instead of (evens, odds)",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_wrv_004.py",
+    "bug_type": "wrong_return_variable",
+    "bug_line": 4,
+    "bug_description": "Returns (mean, mean) instead of (mean, std)",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_wrv_005.py",
+    "bug_type": "wrong_return_variable",
+    "bug_line": 3,
+    "bug_description": "Returns (left, left) instead of (left, right)",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_wop_001.py",
+    "bug_type": "wrong_operator",
+    "bug_line": 2,
+    "bug_description": "Upper bound uses 'lo' instead of 'hi'",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_wop_002.py",
+    "bug_type": "wrong_operator",
+    "bug_line": 4,
+    "bug_description": "fahrenheit_to_celsius uses + instead of - before 32",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_wop_003.py",
+    "bug_type": "wrong_operator",
+    "bug_line": 3,
+    "bug_description": "Denominator uses (hi + lo) instead of (hi - lo)",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_wop_004.py",
+    "bug_type": "wrong_operator",
+    "bug_line": 2,
+    "bug_description": "Uses (1 - rate) instead of (1 + rate) for growth",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_wop_005.py",
+    "bug_type": "wrong_operator",
+    "bug_line": 2,
+    "bug_description": "x-delta uses + instead of - giving wrong distance",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_mec_001.py",
+    "bug_type": "missing_edge_case",
+    "bug_line": 1,
+    "bug_description": "No empty-list guard; even-length list returns wrong median",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_mec_002.py",
+    "bug_type": "missing_edge_case",
+    "bug_line": 2,
+    "bug_description": "No empty-list guard; raises IndexError on empty input",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_mec_003.py",
+    "bug_type": "missing_edge_case",
+    "bug_line": 2,
+    "bug_description": "No empty-list guard; raises ZeroDivisionError",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_mec_004.py",
+    "bug_type": "missing_edge_case",
+    "bug_line": 3,
+    "bug_description": "No empty-sentence guard; max() raises ValueError on empty sequence",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/held_out_bugs/ood_mec_005.py",
+    "bug_type": "missing_edge_case",
+    "bug_line": 5,
+    "bug_description": "No empty-list guard; max() raises ValueError on empty dict",
+    "detectable_by_pylint": false,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "held_out"
+  }
+]
