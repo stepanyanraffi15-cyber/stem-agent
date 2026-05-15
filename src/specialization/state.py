@@ -50,6 +50,7 @@ class RLState(TypedDict):
     skill_library: dict
     prompt_manager: dict
     stopping_reason: str | None
+    max_iterations: int
     rollback_events: list[dict]
     recent_failures: list[dict]
     agent_reviews: Annotated[list[AgentReview], operator.add]
@@ -75,6 +76,7 @@ class VariantState(TypedDict):
     skill_library: dict
     prompt_manager: dict
     stopping_reason: str | None
+    max_iterations: int
     rollback_events: list[dict]
     recent_failures: list[dict]
     agent_reviews: Annotated[list[AgentReview], operator.add]
@@ -92,9 +94,26 @@ class OuterState(TypedDict):
     condition: str
     final_prompt: str | None
     evaluation_results: dict | None
+    # sft-specific
     demonstrations: list[str] | None
     extracted_patterns: list[str] | None
     critiqued_patterns: list[str] | None
     rewrite_reasoning: str | None
+    # shared / rl-specific
     skill_library: dict | None
     performance_history: list[float] | None
+    current_prompt: str | None
+    iteration: int | None
+    curriculum_index: int | None
+    curriculum_order: list[str] | None
+    failure_memory: dict | None
+    consecutive_no_improvement: int | None
+    last_verbal_gradient: dict | None
+    temperatures: list[float] | None
+    variant_results: list[dict] | None
+    prompt_manager: dict | None
+    stopping_reason: str | None
+    max_iterations: int | None
+    rollback_events: list[dict] | None
+    recent_failures: list[dict] | None
+    agent_reviews: list[dict] | None

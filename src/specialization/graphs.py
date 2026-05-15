@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from pathlib import Path
 
 import structlog
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -36,11 +37,41 @@ from src.verifier import pipeline
 
 logger = structlog.get_logger(__name__)
 
-TRAINING_BUGS_DIR = "data/training_bugs"
-HELD_OUT_DIR = "data/held_out_bugs"
-GROUND_TRUTH_PATH = "data/ground_truth.json"
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+TRAINING_BUGS_DIR = str(_PROJECT_ROOT / "data" / "training_bugs")
+HELD_OUT_DIR = str(_PROJECT_ROOT / "data" / "held_out_bugs")
+GROUND_TRUTH_PATH = str(_PROJECT_ROOT / "data" / "ground_truth.json")
 
 _eval_client = None
+
+
+def _prepare_rl(state: OuterState) -> dict:
+    """Initialize all RL-specific state fields before entering the RL subgraph."""
+    from src.specialization.models import prompt_manager_to_dict, skill_library_to_dict
+    from src.stem.prompt_manager import PromptManager
+    from src.stem.skill_library import SkillLibrary
+
+    curriculum_order = _list_py_files(TRAINING_BUGS_DIR)
+    return {
+        "current_prompt": state["stem_config"].get("system_prompt", ""),
+        "iteration": 0,
+        "curriculum_index": 0,
+        "curriculum_order": curriculum_order,
+        "performance_history": [],
+        "failure_memory": {},
+        "consecutive_no_improvement": 0,
+        "last_verbal_gradient": None,
+        "temperatures": [0.6, 0.9, 1.2],
+        "variant_results": [],
+        "skill_library": skill_library_to_dict(SkillLibrary()),
+        "prompt_manager": prompt_manager_to_dict(PromptManager()),
+        "stopping_reason": None,
+        "max_iterations": state.get("max_iterations") or 15,
+        "rollback_events": [],
+        "recent_failures": [],
+        "agent_reviews": [],
+        "final_prompt": None,
+    }
 
 
 def _get_eval_client():
@@ -120,14 +151,16 @@ def build_outer_graph(
 
     graph: StateGraph = StateGraph(OuterState)
     graph.add_node("sft_subgraph", sft_graph)
+    graph.add_node("prepare_rl", _prepare_rl)
     graph.add_node("rl_subgraph", rl_graph)
     graph.add_node("evaluate_final", evaluate_final_node)
 
     graph.add_conditional_edges(
         START,
         route_condition,
-        {"sft": "sft_subgraph", "rl": "rl_subgraph"},
+        {"sft": "sft_subgraph", "rl": "prepare_rl"},
     )
+    graph.add_edge("prepare_rl", "rl_subgraph")
     graph.add_edge("sft_subgraph", "evaluate_final")
     graph.add_edge("rl_subgraph", "evaluate_final")
     graph.add_edge("evaluate_final", END)

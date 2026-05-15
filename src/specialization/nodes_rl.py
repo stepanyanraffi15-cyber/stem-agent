@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 import structlog
 from langgraph.types import Send
@@ -19,8 +20,9 @@ from src.verifier import pipeline
 
 logger = structlog.get_logger(__name__)
 
-GROUND_TRUTH_PATH = "data/ground_truth.json"
-VALIDATION_DIR = "data/validation"
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+GROUND_TRUTH_PATH = str(_PROJECT_ROOT / "data" / "ground_truth.json")
+VALIDATION_DIR = str(_PROJECT_ROOT / "data" / "validation")
 VALIDATION_BATCH_SIZE = 3
 RECENT_FAILURES_MAX = 3
 EARLY_EXIT_DELTA = 0.10
@@ -429,7 +431,8 @@ def select_best_and_update(state: RLState) -> dict:
     else:
         no_improvement += 1
 
-    should_stop, reason = pm.should_stop()
+    max_iterations: int = state.get("max_iterations") or 15
+    should_stop, reason = pm.should_stop(max_iterations=max_iterations)
     stopping_reason: str | None = reason if should_stop else None
 
     logger.info(

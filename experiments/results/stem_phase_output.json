@@ -1,0 +1,28 @@
+{
+  "task_theory": {
+    "task_description": "Review Python code for bugs",
+    "difficulty_factors": [],
+    "common_patterns": [],
+    "expert_strategies": [],
+    "information_needed": [],
+    "raw_llm_output": "{\"review\": {\"code\": {\"language\": \"python\", \"version\": \"3.9\"}, \"task\": {\"type\": \"code_review\", \"description\": \"Review Python code for bugs\"}, \"steps\": [{\"name\": \"Syntax Checking\", \"description\": \"Check for syntax errors\", \"tools\": [{\"name\": \"pylint\", \"version\": \"2.12.2\"}], \"output\": [{\"type\": \"error\", \"message\": \"SyntaxError: invalid syntax\"}]}, {\"name\": \"Code Analysis\", \"description\": \"Check for code smells and complexity\", \"tools\": [{\"name\": \"pyflakes\", \"version\": \"2.3.1\"}], \"output\": [{\"type\": \"warning\", \"message\": \"Redundant import\"}]}, {\"name\": \"Security Auditing\", \"description\": \"Check for security vulnerabilities\", \"tools\": [{\"name\": \"bandit\", \"version\": \"1.8.6\"}], \"output\": [{\"type\": \"error\", \"message\": \"Security vulnerability detected\"}]}, {\"name\": \"Code Style Checking\", \"description\": \"Check for code style consistency\", \"tools\": [{\"name\": \"flake8\", \"version\": \"4.0.1\"}], \"output\": [{\"type\": \"warning\", \"message\": \"Code style inconsistency\"}]}], \"failure_modes\": [{\"name\": \"Syntax Error\", \"description\": \"The code contains a syntax error that prevents it from running\", \"cause\": \"Invalid syntax\"}, {\"name\": \"Code Smell\", \"description\": \"The code contains a code smell that indicates a potential issue\", \"cause\": \"Code complexity\"}, {\"name\": \"Security Vulnerability\", \"description\": \"The code contains a security vulnerability that could be exploited\", \"cause\": \"Insecure code\"}, {\"name\": \"Code Style Inconsistency\", \"description\": \"The code does not follow a consistent code style\", \"cause\": \"Inconsistent code style\"}]}}",
+    "created_at": "2026-05-14T20:09:47.097612"
+  },
+  "stem_config": {
+    "system_prompt": "Given Python code in version 3.9, use the following tools to identify potential issues: 1) Syntax Checking with pylint 2.12.2 to catch syntax errors, 2) Code Analysis with pyflakes 2.3.1 to detect code smells and complexity, 3) Security Auditing with bandit 1.8.6 to identify security vulnerabilities, and 4) Code Style Checking with flake8 4.0.1 to ensure code style consistency. Report all errors and warnings, and provide a detailed explanation of each failure mode.",
+    "tools_selected": [],
+    "reasoning": "",
+    "version": 0,
+    "theory_used": {
+      "task_description": "Review Python code for bugs",
+      "difficulty_factors": [],
+      "common_patterns": [],
+      "expert_strategies": [],
+      "information_needed": [],
+      "raw_llm_output": "{\"review\": {\"code\": {\"language\": \"python\", \"version\": \"3.9\"}, \"task\": {\"type\": \"code_review\", \"description\": \"Review Python code for bugs\"}, \"steps\": [{\"name\": \"Syntax Checking\", \"description\": \"Check for syntax errors\", \"tools\": [{\"name\": \"pylint\", \"version\": \"2.12.2\"}], \"output\": [{\"type\": \"error\", \"message\": \"SyntaxError: invalid syntax\"}]}, {\"name\": \"Code Analysis\", \"description\": \"Check for code smells and complexity\", \"tools\": [{\"name\": \"pyflakes\", \"version\": \"2.3.1\"}], \"output\": [{\"type\": \"warning\", \"message\": \"Redundant import\"}]}, {\"name\": \"Security Auditing\", \"description\": \"Check for security vulnerabilities\", \"tools\": [{\"name\": \"bandit\", \"version\": \"1.8.6\"}], \"output\": [{\"type\": \"error\", \"message\": \"Security vulnerability detected\"}]}, {\"name\": \"Code Style Checking\", \"description\": \"Check for code style consistency\", \"tools\": [{\"name\": \"flake8\", \"version\": \"4.0.1\"}], \"output\": [{\"type\": \"warning\", \"message\": \"Code style inconsistency\"}]}], \"failure_modes\": [{\"name\": \"Syntax Error\", \"description\": \"The code contains a syntax error that prevents it from running\", \"cause\": \"Invalid syntax\"}, {\"name\": \"Code Smell\", \"description\": \"The code contains a code smell that indicates a potential issue\", \"cause\": \"Code complexity\"}, {\"name\": \"Security Vulnerability\", \"description\": \"The code contains a security vulnerability that could be exploited\", \"cause\": \"Insecure code\"}, {\"name\": \"Code Style Inconsistency\", \"description\": \"The code does not follow a consistent code style\", \"cause\": \"Inconsistent code style\"}]}}",
+      "created_at": "2026-05-14T20:09:47.097612"
+    },
+    "created_at": "2026-05-14T20:09:47.542504"
+  },
+  "uncertainty_priors": []
+}

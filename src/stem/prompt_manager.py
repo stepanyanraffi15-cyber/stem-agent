@@ -149,7 +149,7 @@ class PromptManager:
         upper = float(np.percentile(means, 97.5))
         return lower, upper
 
-    def should_stop(self) -> tuple[bool, str]:
+    def should_stop(self, max_iterations: int = 15) -> tuple[bool, str]:
         best = self.get_best_version()
 
         if best is not None and best.score > 0.85:
@@ -160,7 +160,7 @@ class PromptManager:
             if ci is not None and ci[1] < IMPROVEMENT_EPSILON:
                 return True, "diminishing_returns"
 
-        if len(self.versions) >= 15:
+        if len(self.versions) >= max_iterations:
             return True, "max_iterations_reached"
 
         return False, "continue"

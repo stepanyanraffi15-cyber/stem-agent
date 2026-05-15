@@ -207,6 +207,17 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Experiment ID (default: auto-generated timestamp+condition).",
     )
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="Run 3 iterations only. For testing pipeline correctness.",
+    )
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=15,
+        help="Max RL iterations. Default 15 for full run, use 3 for testing.",
+    )
     return parser.parse_args()
 
 
@@ -214,6 +225,7 @@ def main() -> None:
     """Orchestrate the full experiment pipeline."""
     args = _parse_args()
     condition: str = args.condition
+    max_iterations: int = 3 if args.fast else args.iterations
     timestamp_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
     experiment_id: str = args.experiment_id or f"{timestamp_prefix}_{condition}"
 
@@ -227,7 +239,7 @@ def main() -> None:
         log.info("stem.loaded_from_cache")
     else:
         _panel("🌱 Stem phase: agent self-configuration...", "bright_magenta")
-        stem_llm = get_llm_client("agent_review")
+        stem_llm = get_llm_client("stem_phase")
         agent = StemAgent(llm_client=stem_llm)
         theory_obj, config_obj, priors_list = agent.run_stem_phase()
         task_theory = dataclasses.asdict(theory_obj, dict_factory=lambda x: {
@@ -269,6 +281,7 @@ def main() -> None:
             stem_config=stem_config,
             uncertainty_priors=uncertainty_priors,
             experiment_id=sft_id,
+            max_iterations=max_iterations,
         )
         sft_final_prompt = sft_state.get("final_prompt") or baseline_prompt
         (RESULTS_DIR / "sft_final_prompt.txt").write_text(sft_final_prompt, encoding="utf-8")
@@ -288,6 +301,7 @@ def main() -> None:
             stem_config=stem_config,
             uncertainty_priors=uncertainty_priors,
             experiment_id=rl_id,
+            max_iterations=max_iterations,
         )
         rl_final_prompt = rl_state.get("final_prompt") or baseline_prompt
         rl_performance_history = rl_state.get("performance_history") or []

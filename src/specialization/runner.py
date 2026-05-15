@@ -27,6 +27,7 @@ class ExperimentRunner:
         stem_config: dict,
         uncertainty_priors: list[dict],
         experiment_id: str,
+        max_iterations: int = 15,
     ) -> dict:
         if condition not in ("sft", "rl"):
             raise ValueError(f"condition must be 'sft' or 'rl', got {condition!r}")
@@ -56,6 +57,7 @@ class ExperimentRunner:
             "rewrite_reasoning": None,
             "skill_library": None,
             "performance_history": None,
+            "max_iterations": max_iterations,
         }
 
         final_state: dict = {}
