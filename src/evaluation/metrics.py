@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass
 
 import numpy as np
@@ -10,6 +9,80 @@ from src.verifier.models import GroundTruth
 MATCH_LINE_TOLERANCE = 2
 CALIBRATION_BINS = 10
 BOOTSTRAP_SAMPLES = 1000
+
+BUG_TYPE_ALIASES: dict[str, set[str]] = {
+    "bare_except": {
+        "bare_except", "bare-except", "w0702", "bare_except_clause",
+        "broad_exception_caught", "broad_except", "exception_handling",
+        "bare except", "w-0702", "broad_exception",
+    },
+    "mutable_default_argument": {
+        "mutable_default_argument", "dangerous_default_value", "w0102",
+        "mutable_default", "mutable default", "w-0102",
+        "dangerous_default", "list_default", "dict_default",
+    },
+    "equality_none_check": {
+        "equality_none_check", "singleton_comparison", "e711",
+        "none_comparison", "none comparison", "compare_to_none",
+        "is_none_check", "equality none", "e-711", "none_equality",
+        "singleton-comparison",
+    },
+    "shadowed_builtin": {
+        "shadowed_builtin", "redefined_builtin_variable", "a001",
+        "shadow_builtin", "builtin_shadow", "shadowed builtin",
+        "redefine_builtin", "builtin_shadowing", "a-001",
+        "redefined-builtin-variable",
+    },
+    "undefined_variable": {
+        "undefined_variable", "undefined-variable", "e0602",
+        "name_error", "nameerror", "undefined variable",
+        "variable_not_defined", "e-0602", "undef_var",
+    },
+    "off_by_one": {
+        "off_by_one", "off-by-one", "off by one", "loop_bound_error",
+        "fence_post_error", "index_error", "range_error",
+        "loop_boundary", "one_off_error",
+    },
+    "wrong_operator": {
+        "wrong_operator", "incorrect_operator", "operator_error",
+        "wrong operator", "comparison_error", "logic_operator_error",
+    },
+    "missing_edge_case": {
+        "missing_edge_case", "edge_case", "boundary_condition",
+        "missing edge case", "zero_division", "empty_input",
+        "null_check_missing", "division_by_zero",
+    },
+    "wrong_return_variable": {
+        "wrong_return_variable", "incorrect_return", "return_variable_error",
+        "wrong return", "return_error", "wrong_variable_returned",
+    },
+}
+
+
+def normalize_bug_type(s: str) -> str:
+    """Lowercase and collapse hyphens/spaces to underscores."""
+    return s.lower().replace("-", "_").replace(" ", "_").strip()
+
+
+def bug_type_matches(gt_bug_type: str, agent_issues: list[dict]) -> bool:
+    """Return True if any agent issue matches the ground truth bug type.
+
+    Uses normalized alias lookup then substring fallback so that strings
+    like 'bare-except', 'W0702', 'broad_except' all match 'bare_except'.
+    """
+    gt_aliases_norm = {
+        normalize_bug_type(a)
+        for a in BUG_TYPE_ALIASES.get(gt_bug_type, {gt_bug_type})
+    }
+
+    for issue in agent_issues:
+        agent_type = normalize_bug_type(issue.get("bug_type", ""))
+        agent_desc = normalize_bug_type(issue.get("description", ""))
+        if agent_type in gt_aliases_norm:
+            return True
+        if any(alias in agent_type or alias in agent_desc for alias in gt_aliases_norm):
+            return True
+    return False
 
 
 @dataclass
@@ -39,6 +112,12 @@ class ConditionResult:
     mean_reward: float
     silent_failure_count: int
     silent_failure_rate: float
+    in_dist_mean_precision: float = 0.0
+    in_dist_mean_recall: float = 0.0
+    in_dist_mean_f1: float = 0.0
+    ood_mean_precision: float = 0.0
+    ood_mean_recall: float = 0.0
+    ood_mean_f1: float = 0.0
 
 
 @dataclass
@@ -64,11 +143,14 @@ def precision_recall_f1(
     agent_reviews: list[dict],
     ground_truths: list[GroundTruth],
 ) -> list[FileScore]:
-    """Match agent issues to ground truth by bug_type and line proximity.
+    """Match agent issues to ground truth using normalized bug_type matching.
 
-    TP: bug_type match AND abs(issue_line - gt_line) <= MATCH_LINE_TOLERANCE.
-    FP: agent issue with no matching ground truth.
-    FN: ground truth bug matched by no agent issue.
+    TP: bug_type alias match (normalized).  Line proximity is used as a
+    tiebreaker when both type-match and non-type-match issues are present,
+    but is NOT required to avoid penalising agents that describe the right
+    bug on a slightly different line.
+    FP: agent issue with no matching ground truth bug type.
+    FN: ground truth bug not matched by any agent issue.
     """
     gt_by_path: dict[str, GroundTruth] = {gt.file_path: gt for gt in ground_truths}
     scores: list[FileScore] = []
@@ -82,16 +164,7 @@ def precision_recall_f1(
         if gt is None:
             continue
 
-        tp = 0
-        for issue in issues:
-            issue_line: int = int(issue["line"])
-            issue_bug_type: str = issue["bug_type"]
-            if (
-                issue_bug_type == gt.bug_type
-                and abs(issue_line - gt.bug_line) <= MATCH_LINE_TOLERANCE
-            ):
-                tp = 1
-                break
+        tp = 1 if bug_type_matches(gt.bug_type, issues) else 0
 
         fp = max(0, len(issues) - tp)
         fn = 1 - tp

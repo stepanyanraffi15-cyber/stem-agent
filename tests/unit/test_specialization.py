@@ -267,10 +267,6 @@ def test_evaluate_batch_early_exit(mocker, tmp_path) -> None:
 
     gt_map = {}
     mocker.patch("src.specialization.nodes_rl._load_ground_truth", return_value=gt_map)
-    mocker.patch(
-        "src.specialization.nodes_rl.pipeline.run_all_verifiers",
-        return_value=mocker.MagicMock(shaped_reward=0.9),
-    )
 
     call_count = 0
 
@@ -311,20 +307,13 @@ def test_failure_memory_accumulates(mocker) -> None:
         "src.specialization.nodes_rl._load_ground_truth",
         return_value={"data/training_bugs/bug_001.py": gt_dict},
     )
-    mocker.patch(
-        "src.specialization.nodes_rl._read_file",
-        return_value="def f(): pass",
-    )
-    mocker.patch(
-        "src.specialization.nodes_rl.pipeline.run_all_verifiers",
-        return_value=mocker.MagicMock(shaped_reward=0.0),
-    )
 
     state = _base_rl_state(
         curriculum_order=["data/training_bugs/bug_001.py"],
         curriculum_index=1,
         failure_memory={},
         recent_failures=[],
+        agent_reviews=[],
     )
     for _ in range(3):
         result = compute_reward(state)
@@ -347,17 +336,13 @@ def test_recent_failures_truncates_to_three(mocker) -> None:
         "src.specialization.nodes_rl._load_ground_truth",
         return_value={"data/training_bugs/bug_001.py": gt_dict},
     )
-    mocker.patch("src.specialization.nodes_rl._read_file", return_value="def f(): pass")
-    mocker.patch(
-        "src.specialization.nodes_rl.pipeline.run_all_verifiers",
-        return_value=mocker.MagicMock(shaped_reward=0.0),
-    )
 
     state = _base_rl_state(
         curriculum_order=["data/training_bugs/bug_001.py"],
         curriculum_index=1,
         failure_memory={},
         recent_failures=[],
+        agent_reviews=[],
     )
     for i in range(5):
         state = {**state, "iteration": i + 1}

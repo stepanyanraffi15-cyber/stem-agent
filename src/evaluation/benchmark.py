@@ -26,13 +26,25 @@ log = structlog.get_logger(__name__)
 CONSOLE = Console()
 
 GEN_GAP_WARN_THRESHOLD = 0.1
+N_TRAINING_FILES = 30
+N_HELD_OUT_FILES = 20
+
+
+def _mean(values: list[float]) -> float:
+    return sum(values) / len(values) if values else 0.0
 
 
 def _build_condition_result(
     condition: str,
     file_scores: list[FileScore],
 ) -> ConditionResult:
-    """Aggregate FileScore list into ConditionResult."""
+    """Aggregate FileScore list into ConditionResult.
+
+    Expects file_scores ordered as training files first (N_TRAINING_FILES),
+    held-out files second (N_HELD_OUT_FILES).  The split is used to populate
+    the in_dist_* and ood_* sub-metrics so the display table shows them
+    independently rather than averaged together.
+    """
     if not file_scores:
         return ConditionResult(
             condition=condition,
@@ -46,15 +58,25 @@ def _build_condition_result(
         )
     n = len(file_scores)
     silent = [s for s in file_scores if s.is_silent_failure]
+
+    in_dist = file_scores[:N_TRAINING_FILES]
+    ood = file_scores[N_TRAINING_FILES:N_TRAINING_FILES + N_HELD_OUT_FILES]
+
     return ConditionResult(
         condition=condition,
         file_scores=file_scores,
-        mean_precision=sum(s.precision for s in file_scores) / n,
-        mean_recall=sum(s.recall for s in file_scores) / n,
-        mean_f1=sum(s.f1 for s in file_scores) / n,
-        mean_reward=sum(s.reward for s in file_scores) / n,
+        mean_precision=_mean([s.precision for s in file_scores]),
+        mean_recall=_mean([s.recall for s in file_scores]),
+        mean_f1=_mean([s.f1 for s in file_scores]),
+        mean_reward=_mean([s.reward for s in file_scores]),
         silent_failure_count=len(silent),
         silent_failure_rate=len(silent) / n,
+        in_dist_mean_precision=_mean([s.precision for s in in_dist]),
+        in_dist_mean_recall=_mean([s.recall for s in in_dist]),
+        in_dist_mean_f1=_mean([s.f1 for s in in_dist]),
+        ood_mean_precision=_mean([s.precision for s in ood]),
+        ood_mean_recall=_mean([s.recall for s in ood]),
+        ood_mean_f1=_mean([s.f1 for s in ood]),
     )
 
 
@@ -83,25 +105,18 @@ def run_full_benchmark(
     sft_result = _build_condition_result("sft", sft_scores)
     rl_result = _build_condition_result("rl", rl_scores)
 
-    half_b = len(baseline_scores) // 2
-    half_s = len(sft_scores) // 2
-    half_r = len(rl_scores) // 2
+    in_b = baseline_scores[:N_TRAINING_FILES]
+    ood_b = baseline_scores[N_TRAINING_FILES:N_TRAINING_FILES + N_HELD_OUT_FILES]
+    in_s = sft_scores[:N_TRAINING_FILES]
+    ood_s = sft_scores[N_TRAINING_FILES:N_TRAINING_FILES + N_HELD_OUT_FILES]
+    in_r = rl_scores[:N_TRAINING_FILES]
+    ood_r = rl_scores[N_TRAINING_FILES:N_TRAINING_FILES + N_HELD_OUT_FILES]
 
-    gap_baseline = generalization_gap(baseline_scores[:half_b], baseline_scores[half_b:])
-    gap_sft = generalization_gap(sft_scores[:half_s], sft_scores[half_s:])
-    gap_rl = generalization_gap(rl_scores[:half_r], rl_scores[half_r:])
+    gap_baseline = generalization_gap(in_b, ood_b)
+    gap_sft = generalization_gap(in_s, ood_s)
+    gap_rl = generalization_gap(in_r, ood_r)
 
-    rl_ood_f1 = (
-        sum(s.f1 for s in rl_scores[half_r:]) / len(rl_scores[half_r:])
-        if rl_scores[half_r:]
-        else 0.0
-    )
-    sft_ood_f1 = (
-        sum(s.f1 for s in sft_scores[half_s:]) / len(sft_scores[half_s:])
-        if sft_scores[half_s:]
-        else 0.0
-    )
-    rl_vs_sft = rl_ood_f1 - sft_ood_f1
+    rl_vs_sft = rl_result.ood_mean_f1 - sft_result.ood_mean_f1
 
     sft_confidences = [s.reward for s in sft_scores]
     sft_correct = [s.recall > 0.0 for s in sft_scores]
@@ -113,7 +128,7 @@ def run_full_benchmark(
 
     pareto_rl = pareto_curve(rl_performance_history)
     pareto_sft: list[tuple[int, float]] = (
-        [(0, sft_result.mean_f1)] if sft_result.mean_f1 else []
+        [(0, sft_result.in_dist_mean_f1)] if sft_result.in_dist_mean_f1 else []
     )
 
     skill_growth = skill_growth_curve(rl_skill_snapshots)
@@ -177,12 +192,12 @@ def print_comparison_table(result: ExperimentResult) -> None:
     table.add_column("RL Δ SFT", justify="center")
 
     rows: list[tuple[str, float, float, float]] = [
-        ("Train Precision", b.mean_precision, s.mean_precision, r.mean_precision),
-        ("Train Recall", b.mean_recall, s.mean_recall, r.mean_recall),
-        ("Train F1", b.mean_f1, s.mean_f1, r.mean_f1),
-        ("OOD Precision", b.mean_precision, s.mean_precision, r.mean_precision),
-        ("OOD Recall", b.mean_recall, s.mean_recall, r.mean_recall),
-        ("OOD F1", b.mean_f1, s.mean_f1, r.mean_f1),
+        ("Train Precision", b.in_dist_mean_precision, s.in_dist_mean_precision, r.in_dist_mean_precision),
+        ("Train Recall", b.in_dist_mean_recall, s.in_dist_mean_recall, r.in_dist_mean_recall),
+        ("Train F1", b.in_dist_mean_f1, s.in_dist_mean_f1, r.in_dist_mean_f1),
+        ("OOD Precision", b.ood_mean_precision, s.ood_mean_precision, r.ood_mean_precision),
+        ("OOD Recall", b.ood_mean_recall, s.ood_mean_recall, r.ood_mean_recall),
+        ("OOD F1", b.ood_mean_f1, s.ood_mean_f1, r.ood_mean_f1),
     ]
 
     for label, bv, sv, rv in rows:
@@ -228,9 +243,6 @@ def print_comparison_table(result: ExperimentResult) -> None:
     )
 
     CONSOLE.print(table)
-    CONSOLE.print(
-        "[bold]Chu et al. 2025 prediction: RL generalizes, SFT memorizes.[/bold]"
-    )
 
 
 def save_results(result: ExperimentResult, path: str) -> None:

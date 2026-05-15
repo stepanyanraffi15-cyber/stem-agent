@@ -15,8 +15,6 @@ from src.specialization.models import (
 )
 from src.specialization.state import AgentReview, RLState, VariantResult
 from src.stem.models import LLMMessage, Skill
-from src.verifier import pipeline
-
 logger = structlog.get_logger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -125,6 +123,21 @@ def review_code_batch(state: RLState) -> dict:
     return {"agent_reviews": [review]}
 
 
+from src.evaluation.metrics import bug_type_matches as _bug_type_matches
+
+
+def _detection_f1(issues: list[dict], gt_bug_type: str) -> float:
+    """Compute F1 of agent detection using normalized + alias-based matching."""
+    tp = 1 if _bug_type_matches(gt_bug_type, issues) else 0
+    fp = max(0, len(issues) - tp)
+    fn = 1 - tp
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    if (precision + recall) == 0.0:
+        return 0.0
+    return 2 * precision * recall / (precision + recall)
+
+
 def compute_reward(state: RLState) -> dict:
     order = state["curriculum_order"]
     idx = max(0, state["curriculum_index"] - 1)
@@ -138,23 +151,11 @@ def compute_reward(state: RLState) -> dict:
         reward = 0.0
         bug_type = "unknown"
     else:
-        from src.verifier.models import GroundTruth
-        gt = GroundTruth(
-            file_path=gt_dict["file_path"],
-            bug_type=gt_dict["bug_type"],
-            bug_line=int(gt_dict["bug_line"]),
-            bug_description=gt_dict.get("bug_description", ""),
-            detectable_by_pylint=bool(gt_dict.get("detectable_by_pylint", False)),
-            detectable_by_ast=bool(gt_dict.get("detectable_by_ast", False)),
-            detectable_by_execution=bool(gt_dict.get("detectable_by_execution", False)),
-        )
-        try:
-            code = _read_file(file_path)
-        except OSError:
-            code = ""
-        result = pipeline.run_all_verifiers(code, gt)
-        reward = result.shaped_reward
-        bug_type = gt.bug_type
+        bug_type = gt_dict["bug_type"]
+        reviews = state.get("agent_reviews") or []
+        last_review = reviews[-1] if reviews else {}
+        issues: list[dict] = last_review.get("issues", [])
+        reward = _detection_f1(issues, bug_type)
 
     history = list(state["performance_history"]) + [reward]
 
@@ -382,26 +383,15 @@ def _score_variant(
         raw = client.complete_json(messages, max_tokens=get_max_tokens("agent_review"))
         reviews = raw.get("reviews", [])
 
-        for k, _review_dict in enumerate(reviews):
+        for k, review_dict in enumerate(reviews):
             if k >= len(batch):
                 break
             file_path = batch[k]
             gt_dict = ground_truth_map.get(file_path)
             if gt_dict is None:
                 continue
-            from src.verifier.models import GroundTruth
-            gt = GroundTruth(
-                file_path=gt_dict["file_path"],
-                bug_type=gt_dict["bug_type"],
-                bug_line=int(gt_dict["bug_line"]),
-                bug_description=gt_dict.get("bug_description", ""),
-                detectable_by_pylint=bool(gt_dict.get("detectable_by_pylint", False)),
-                detectable_by_ast=bool(gt_dict.get("detectable_by_ast", False)),
-                detectable_by_execution=bool(gt_dict.get("detectable_by_execution", False)),
-            )
-            code = _safe_read(file_path)
-            result = pipeline.run_all_verifiers(code, gt)
-            all_rewards.append(result.shaped_reward)
+            issues = review_dict.get("issues", []) if isinstance(review_dict, dict) else []
+            all_rewards.append(_detection_f1(issues, gt_dict["bug_type"]))
 
     score = sum(all_rewards) / len(all_rewards) if all_rewards else 0.0
     if score > best_score_ref[0]:

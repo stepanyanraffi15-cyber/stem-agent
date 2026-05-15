@@ -43,6 +43,9 @@ TRAINING_BUGS_DIR = str(_PROJECT_ROOT / "data" / "training_bugs")
 HELD_OUT_DIR = str(_PROJECT_ROOT / "data" / "held_out_bugs")
 GROUND_TRUTH_PATH = str(_PROJECT_ROOT / "data" / "ground_truth.json")
 
+from src.evaluation.metrics import bug_type_matches as _bug_type_matches
+
+
 _eval_client = None
 
 
@@ -234,11 +237,15 @@ def evaluate_final_node(state: OuterState) -> dict:
                 "in_dist_f1": baseline_in_f1,
                 "ood_f1": baseline_ood_f1,
                 "silent_failures": silent_count(ood_baseline),
+                "in_dist_file_scores": in_dist_baseline,
+                "ood_file_scores": ood_baseline,
             },
             "specialized": {
                 "in_dist_f1": spec_in_f1,
                 "ood_f1": spec_ood_f1,
                 "silent_failures": silent_count(ood_spec),
+                "in_dist_file_scores": in_dist_spec,
+                "ood_file_scores": ood_spec,
             },
             "generalization_gap": generalization_gap,
             "improvement": improvement,
@@ -293,8 +300,7 @@ def _score_one_file(
     reward = verifier_output.shaped_reward
 
     issues = raw.get("issues", [])
-    detected_bug_types = {i.get("bug_type", "") for i in issues}
-    tp = 1 if gt.bug_type in detected_bug_types else 0
+    tp = 1 if _bug_type_matches(gt.bug_type, issues) else 0
     fp = max(0, len(issues) - tp)
     fn = 1 - tp
 
