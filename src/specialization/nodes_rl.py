@@ -476,7 +476,11 @@ def select_best_and_update(state: RLState) -> dict:
         no_improvement += 1
 
     max_iterations: int = state.get("max_iterations") or 15
-    should_stop, reason = pm.should_stop(max_iterations=max_iterations)
+    if state["iteration"] >= max_iterations or no_improvement >= 5:
+        should_stop = True
+        reason = "max_iterations_reached" if state["iteration"] >= max_iterations else "plateau"
+    else:
+        should_stop, reason = pm.should_stop(max_iterations=max_iterations)
     stopping_reason: str | None = reason if should_stop else None
 
     logger.info(
