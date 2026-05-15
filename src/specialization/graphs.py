@@ -19,11 +19,10 @@ from src.specialization.nodes_rl import (
     evaluate_batch,
     ewc_rollback,
     finalize_rl,
-    generate_variant,
+    generate_all_variants,
     lazy_gradient,
     review_code_batch,
     compute_reward,
-    route_to_variants,
     select_best_and_update,
 )
 from src.specialization.nodes_sft import (
@@ -108,7 +107,7 @@ def build_rl_subgraph() -> CompiledGraph:
     graph.add_node("compute_reward", compute_reward)
     graph.add_node("ewc_rollback", ewc_rollback)
     graph.add_node("lazy_gradient", lazy_gradient)
-    graph.add_node("generate_variant", generate_variant)
+    graph.add_node("generate_all_variants", generate_all_variants)
     graph.add_node("evaluate_batch", evaluate_batch)
     graph.add_node("select_best_and_update", select_best_and_update)
     graph.add_node("finalize_rl", finalize_rl)
@@ -122,8 +121,8 @@ def build_rl_subgraph() -> CompiledGraph:
         {"ewc_rollback": "ewc_rollback", "lazy_gradient": "lazy_gradient"},
     )
     graph.add_edge("ewc_rollback", "lazy_gradient")
-    graph.add_conditional_edges("lazy_gradient", route_to_variants)
-    graph.add_edge("generate_variant", "evaluate_batch")
+    graph.add_edge("lazy_gradient", "generate_all_variants")
+    graph.add_edge("generate_all_variants", "evaluate_batch")
     graph.add_edge("evaluate_batch", "select_best_and_update")
     graph.add_conditional_edges(
         "select_best_and_update",

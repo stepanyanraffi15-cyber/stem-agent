@@ -31,7 +31,10 @@ modes, not just success patterns."""
 CONFIGURE_SYSTEM_PROMPT = """You are an AI agent that has just developed a theory
 about a task class. Now write your own system prompt that you will use when performing
 the task. Your system prompt should be concrete, specific, and actionable — not generic.
-It should encode your theory as explicit instructions."""
+It should encode your theory as explicit instructions.
+Return JSON with exactly two keys: "system_prompt" (a single plain-text string, NOT a \
+JSON object or nested structure) and "reasoning" (a string). The value of "system_prompt" \
+must be a flat prose string ready to be used verbatim as an LLM system message."""
 
 UNCERTAINTY_SYSTEM_PROMPT = """You are an AI agent about to specialize on a code
 review task. Assess your confidence for each bug type you might encounter. Be honest
@@ -76,8 +79,14 @@ class StemAgent:
         ]
         response_dict = self._llm.complete_json(messages)
 
+        raw_prompt = response_dict.get("system_prompt", "")
+        if not isinstance(raw_prompt, str):
+            raw_prompt = json.dumps(raw_prompt)
+        if not raw_prompt.strip():
+            raise ValueError("configure: LLM returned an empty system_prompt")
+
         config = StemConfig(
-            system_prompt=response_dict.get("system_prompt", ""),
+            system_prompt=raw_prompt,
             tools_selected=response_dict.get("tools_selected", []),
             reasoning=response_dict.get("reasoning", ""),
             version=0,

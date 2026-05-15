@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 
 import structlog
-from langgraph.types import Send
 
 from src.specialization.llm_factory import get_llm_client, get_max_tokens
 from src.specialization.models import (
@@ -14,7 +13,7 @@ from src.specialization.models import (
     skill_library_from_dict,
     skill_library_to_dict,
 )
-from src.specialization.state import AgentReview, RLState, VariantResult, VariantState
+from src.specialization.state import AgentReview, RLState, VariantResult
 from src.stem.models import LLMMessage, Skill
 from src.verifier import pipeline
 
@@ -269,31 +268,14 @@ def lazy_gradient(state: RLState) -> dict:
     return {"last_verbal_gradient": gradient}
 
 
-def route_to_variants(state: RLState) -> list[Send]:
-    temps = state["temperatures"]
-    strategies = ["focused", "broad", "alternative"]
-    sends = [
-        Send(
-            "generate_variant",
-            {
-                **state,
-                "variant_id": i,
-                "target_temperature": temps[i],
-                "variant_strategy": strategies[i],
-            },
-        )
-        for i in range(3)
-    ]
-    logger.info("rl.route_to_variants", temperatures=temps)
-    return sends
-
-
-def generate_variant(state: VariantState) -> dict:
-    variant_id = state["variant_id"]
-    strategy = state["variant_strategy"]
-    temperature = state["target_temperature"]
+def _generate_single_variant(
+    state: RLState,
+    variant_id: int,
+    temperature: float,
+    strategy: str,
+) -> VariantResult:
+    """Generate one prompt variant. Designed to run inside a ThreadPoolExecutor."""
     gradient = state.get("last_verbal_gradient") or {}
-
     template = _VARIANT_PROMPTS[strategy]
     user_content = template.format(
         gradient=json.dumps(gradient),
@@ -301,9 +283,7 @@ def generate_variant(state: VariantState) -> dict:
     )
 
     client = get_llm_client("variant_gen")
-    messages = [
-        LLMMessage(role="user", content=user_content),
-    ]
+    messages = [LLMMessage(role="user", content=user_content)]
     raw = client.complete(messages, temperature=temperature, max_tokens=get_max_tokens("variant_gen"))
 
     try:
@@ -319,14 +299,47 @@ def generate_variant(state: VariantState) -> dict:
     except json.JSONDecodeError:
         new_prompt = state["current_prompt"]
 
-    result: VariantResult = {
-        "variant_id": variant_id,
-        "prompt": new_prompt,
-        "temperature": temperature,
-        "score": 0.0,
-    }
     logger.info("rl.generate_variant", variant_id=variant_id, strategy=strategy)
-    return {"variant_results": [result]}
+    return VariantResult(
+        variant_id=variant_id,
+        prompt=new_prompt,
+        temperature=temperature,
+        score=0.0,
+    )
+
+
+def generate_all_variants(state: RLState) -> dict:
+    """Generate all 3 prompt variants in parallel and return them as a single write."""
+    temps = state["temperatures"]
+    strategies = ["focused", "broad", "alternative"]
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    results: list[VariantResult] = [None] * 3  # type: ignore[list-item]
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        future_to_idx = {
+            pool.submit(_generate_single_variant, state, i, temps[i], strategies[i]): i
+            for i in range(3)
+        }
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            try:
+                results[idx] = future.result()
+            except Exception as exc:
+                logger.warning(
+                    "rl.generate_all_variants.worker_error",
+                    variant_id=idx,
+                    error=str(exc),
+                )
+                results[idx] = VariantResult(
+                    variant_id=idx,
+                    prompt=state["current_prompt"],
+                    temperature=temps[idx],
+                    score=0.0,
+                )
+
+    logger.info("rl.generate_all_variants.done", temperatures=temps)
+    return {"variant_results": [r for r in results if r is not None]}
 
 
 def _score_variant(
@@ -404,9 +417,6 @@ def _score_variant(
 
 def evaluate_batch(state: RLState) -> dict:
     """Score all 3 variants in parallel against the validation set."""
-    if len(state["variant_results"]) < 3:
-        return {}
-
     validation_files = _load_validation_files()
     if not validation_files:
         logger.warning("rl.evaluate_batch.no_validation_files")
@@ -502,7 +512,6 @@ def select_best_and_update(state: RLState) -> dict:
         "skill_library": skill_library_to_dict(sl),
         "consecutive_no_improvement": no_improvement,
         "stopping_reason": stopping_reason,
-        "variant_results": [],
     }
 
 

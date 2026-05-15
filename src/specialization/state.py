@@ -46,7 +46,7 @@ class RLState(TypedDict):
     consecutive_no_improvement: int
     last_verbal_gradient: dict | None
     temperatures: list[float]
-    variant_results: Annotated[list[VariantResult], operator.add]
+    variant_results: list[VariantResult]
     skill_library: dict
     prompt_manager: dict
     stopping_reason: str | None
@@ -55,35 +55,6 @@ class RLState(TypedDict):
     recent_failures: list[dict]
     agent_reviews: Annotated[list[AgentReview], operator.add]
     final_prompt: str | None
-
-
-class VariantState(TypedDict):
-    task_theory: dict
-    stem_config: dict
-    uncertainty_priors: list[dict]
-    experiment_id: str
-    condition: str
-    current_prompt: str
-    iteration: int
-    curriculum_index: int
-    curriculum_order: list[str]
-    performance_history: list[float]
-    failure_memory: dict
-    consecutive_no_improvement: int
-    last_verbal_gradient: dict | None
-    temperatures: list[float]
-    variant_results: Annotated[list[VariantResult], operator.add]
-    skill_library: dict
-    prompt_manager: dict
-    stopping_reason: str | None
-    max_iterations: int
-    rollback_events: list[dict]
-    recent_failures: list[dict]
-    agent_reviews: Annotated[list[AgentReview], operator.add]
-    final_prompt: str | None
-    variant_id: int
-    target_temperature: float
-    variant_strategy: str
 
 
 class OuterState(TypedDict):

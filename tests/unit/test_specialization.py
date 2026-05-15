@@ -5,9 +5,9 @@ from src.specialization.nodes_rl import (
     check_stop,
     compute_reward,
     finalize_rl,
+    generate_all_variants,
     get_temperatures,
     lazy_gradient,
-    route_to_variants,
 )
 from src.specialization.state import RLState, VariantResult
 
@@ -113,19 +113,34 @@ def test_check_stop_returns_continue() -> None:
     assert check_stop(state) == "continue"
 
 
-def test_send_api_returns_three_sends() -> None:
-    from langgraph.types import Send  # type: ignore[import-untyped]
+def test_generate_all_variants_returns_three_results(mocker) -> None:
+    mock_client = mocker.MagicMock()
+    mock_client.complete.return_value = mocker.MagicMock(
+        content='{"system_prompt": "improved prompt"}'
+    )
+    mocker.patch("src.specialization.nodes_rl.get_llm_client", return_value=mock_client)
+
     state = _base_rl_state(temperatures=[0.6, 0.9, 1.2])
-    sends = route_to_variants(state)
-    assert len(sends) == 3
-    assert all(isinstance(s, Send) for s in sends)
+    result = generate_all_variants(state)
+
+    variants = result["variant_results"]
+    assert len(variants) == 3
+    assert all(isinstance(v["prompt"], str) for v in variants)
 
 
-def test_send_api_sends_have_different_strategies() -> None:
+def test_generate_all_variants_uses_different_temperatures(mocker) -> None:
+    mock_client = mocker.MagicMock()
+    mock_client.complete.return_value = mocker.MagicMock(
+        content='{"system_prompt": "improved prompt"}'
+    )
+    mocker.patch("src.specialization.nodes_rl.get_llm_client", return_value=mock_client)
+
     state = _base_rl_state(temperatures=[0.6, 0.9, 1.2])
-    sends = route_to_variants(state)
-    strategies = [s.arg["variant_strategy"] for s in sends]
-    assert len(set(strategies)) == 3
+    result = generate_all_variants(state)
+
+    variants = result["variant_results"]
+    temperatures_used = {v["temperature"] for v in variants}
+    assert temperatures_used == {0.6, 0.9, 1.2}
 
 
 def test_simulated_annealing_early() -> None:
