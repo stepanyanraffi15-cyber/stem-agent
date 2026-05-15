@@ -76,8 +76,15 @@ def bug_type_matches(gt_bug_type: str, agent_issues: list[dict]) -> bool:
     }
 
     for issue in agent_issues:
-        agent_type = normalize_bug_type(issue.get("bug_type", ""))
-        agent_desc = normalize_bug_type(issue.get("description", ""))
+        agent_type = normalize_bug_type(
+            issue.get("bug_type", "")
+            or issue.get("category", "")
+            or issue.get("title", "")
+        )
+        agent_desc = normalize_bug_type(
+            issue.get("description", "")
+            or issue.get("evidence", "")
+        )
         if agent_type in gt_aliases_norm:
             return True
         if any(alias in agent_type or alias in agent_desc for alias in gt_aliases_norm):

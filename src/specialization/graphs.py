@@ -306,7 +306,7 @@ def _score_one_file(
     verifier_output = pipeline.run_all_verifiers(code, gt)
     reward = verifier_output.shaped_reward
 
-    issues = raw.get("issues", [])
+    issues = raw.get("issues") or raw.get("findings", [])
     tp = 1 if _bug_type_matches(gt.bug_type, issues) else 0
     fp = max(0, len(issues) - tp)
     fn = 1 - tp

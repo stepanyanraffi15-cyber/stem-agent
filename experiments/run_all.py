@@ -150,7 +150,7 @@ def _score_baseline_file(
     verifier_out = pipeline.run_all_verifiers(code, gt)
     return {
         "file_path": file_path,
-        "issues": raw.get("issues", []),
+        "issues": raw.get("issues") or raw.get("findings", []),
         "overall_confidence": float(raw.get("overall_confidence", 0.0)),
         "summary": raw.get("summary", ""),
         "reward": verifier_out.shaped_reward,
@@ -240,7 +240,7 @@ def _score_prompt_file(
         return None
 
     verifier_out = pipeline.run_all_verifiers(code, gt)
-    issues: list[dict] = raw.get("issues", [])
+    issues: list[dict] = raw.get("issues") or raw.get("findings", [])
     tp = 1 if bug_type_matches(gt.bug_type, issues) else 0
     fp = max(0, len(issues) - tp)
     fn = 1 - tp
