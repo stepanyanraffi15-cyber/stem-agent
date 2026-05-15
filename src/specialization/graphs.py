@@ -11,10 +11,13 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph as CompiledGraph
 
+from src.evaluation.metrics import bug_type_matches as _bug_type_matches
 from src.specialization.llm_factory import get_llm_client, get_max_tokens
+from src.specialization.models import prompt_manager_to_dict, skill_library_to_dict
 from src.specialization.nodes_rl import (
     check_forgetting,
     check_stop,
+    compute_reward,
     curriculum_step,
     evaluate_batch,
     ewc_rollback,
@@ -22,7 +25,6 @@ from src.specialization.nodes_rl import (
     generate_all_variants,
     lazy_gradient,
     review_code_batch,
-    compute_reward,
     select_best_and_update,
 )
 from src.specialization.nodes_sft import (
@@ -34,7 +36,11 @@ from src.specialization.nodes_sft import (
 )
 from src.specialization.parallel import parallel_score_files
 from src.specialization.state import OuterState, RLState, SFTState
+from src.stem.models import LLMMessage
+from src.stem.prompt_manager import PromptManager
+from src.stem.skill_library import SkillLibrary
 from src.verifier import pipeline
+from src.verifier.models import GroundTruth
 
 logger = structlog.get_logger(__name__)
 
@@ -43,18 +49,27 @@ TRAINING_BUGS_DIR = str(_PROJECT_ROOT / "data" / "training_bugs")
 HELD_OUT_DIR = str(_PROJECT_ROOT / "data" / "held_out_bugs")
 GROUND_TRUTH_PATH = str(_PROJECT_ROOT / "data" / "ground_truth.json")
 
-from src.evaluation.metrics import bug_type_matches as _bug_type_matches
-
-
 _eval_client = None
+
+
+def _mean_f1(results: list[dict]) -> float:
+    """Compute mean F1 across result dicts that contain an 'f1' key."""
+    scores = [r["f1"] for r in results if "f1" in r]
+    return sum(scores) / len(scores) if scores else 0.0
+
+
+def _silent_count(results: list[dict]) -> int:
+    """Count results where the reward is exactly 0.0 (silent failures)."""
+    return sum(1 for r in results if r.get("reward", 0.0) == 0.0)
+
+
+def _route_condition(state: OuterState) -> str:
+    """Route outer graph to SFT or RL subgraph based on condition field."""
+    return state["condition"]
 
 
 def _prepare_rl(state: OuterState) -> dict:
     """Initialize all RL-specific state fields before entering the RL subgraph."""
-    from src.specialization.models import prompt_manager_to_dict, skill_library_to_dict
-    from src.stem.prompt_manager import PromptManager
-    from src.stem.skill_library import SkillLibrary
-
     curriculum_order = _list_py_files(TRAINING_BUGS_DIR)
     return {
         "current_prompt": state["stem_config"].get("system_prompt", ""),
@@ -86,6 +101,7 @@ def _get_eval_client():
 
 
 def build_sft_subgraph() -> CompiledGraph:
+    """Compile the SFT (demonstration-based) specialization subgraph."""
     graph: StateGraph = StateGraph(SFTState)
     graph.add_node("load_demonstrations", load_demonstrations)
     graph.add_node("extract_patterns", extract_patterns)
@@ -104,6 +120,7 @@ def build_sft_subgraph() -> CompiledGraph:
 
 
 def build_rl_subgraph() -> CompiledGraph:
+    """Compile the RL (outcome-based) specialization subgraph."""
     graph: StateGraph = StateGraph(RLState)
     graph.add_node("curriculum_step", curriculum_step)
     graph.add_node("review_code_batch", review_code_batch)
@@ -141,6 +158,7 @@ def build_outer_graph(
     checkpoint_path: str = "experiments/checkpoints.db",
     human_review: bool = False,
 ) -> CompiledGraph:
+    """Compile the outer graph that routes to SFT or RL subgraph."""
     parent = os.path.dirname(checkpoint_path)
     if parent:
         os.makedirs(parent, exist_ok=True)
@@ -150,9 +168,6 @@ def build_outer_graph(
     conn = sqlite3.connect(checkpoint_path, check_same_thread=False)
     memory = SqliteSaver(conn)
 
-    def route_condition(state: OuterState) -> str:
-        return state["condition"]
-
     graph: StateGraph = StateGraph(OuterState)
     graph.add_node("sft_subgraph", sft_graph)
     graph.add_node("prepare_rl", _prepare_rl)
@@ -161,7 +176,7 @@ def build_outer_graph(
 
     graph.add_conditional_edges(
         START,
-        route_condition,
+        _route_condition,
         {"sft": "sft_subgraph", "rl": "prepare_rl"},
     )
     graph.add_edge("prepare_rl", "rl_subgraph")
@@ -201,17 +216,10 @@ def evaluate_final_node(state: OuterState) -> dict:
     in_dist_spec = [r for r in specialized_results if r["file_path"] in set(training_files)]
     ood_spec = [r for r in specialized_results if r["file_path"] in set(held_out_files)]
 
-    def mean_f1(results: list[dict]) -> float:
-        scores = [r["f1"] for r in results if "f1" in r]
-        return sum(scores) / len(scores) if scores else 0.0
-
-    def silent_count(results: list[dict]) -> int:
-        return sum(1 for r in results if r.get("reward", 0.0) == 0.0)
-
-    baseline_in_f1 = mean_f1(in_dist_baseline)
-    baseline_ood_f1 = mean_f1(ood_baseline)
-    spec_in_f1 = mean_f1(in_dist_spec)
-    spec_ood_f1 = mean_f1(ood_spec)
+    baseline_in_f1 = _mean_f1(in_dist_baseline)
+    baseline_ood_f1 = _mean_f1(ood_baseline)
+    spec_in_f1 = _mean_f1(in_dist_spec)
+    spec_ood_f1 = _mean_f1(ood_spec)
 
     perf_history: list[float] = state.get("performance_history") or []
     condition = state.get("condition", "unknown")
@@ -236,14 +244,14 @@ def evaluate_final_node(state: OuterState) -> dict:
             "baseline": {
                 "in_dist_f1": baseline_in_f1,
                 "ood_f1": baseline_ood_f1,
-                "silent_failures": silent_count(ood_baseline),
+                "silent_failures": _silent_count(ood_baseline),
                 "in_dist_file_scores": in_dist_baseline,
                 "ood_file_scores": ood_baseline,
             },
             "specialized": {
                 "in_dist_f1": spec_in_f1,
                 "ood_f1": spec_ood_f1,
-                "silent_failures": silent_count(ood_spec),
+                "silent_failures": _silent_count(ood_spec),
                 "in_dist_file_scores": in_dist_spec,
                 "ood_file_scores": ood_spec,
             },
@@ -261,9 +269,6 @@ def _score_one_file(
     client: object,
 ) -> dict | None:
     """Score a single file against its ground truth. Returns None if file should be skipped."""
-    from src.stem.models import LLMMessage
-    from src.verifier.models import GroundTruth
-
     gt_dict = gt_map.get(file_path)
     if gt_dict is None:
         return None
@@ -344,6 +349,7 @@ def _run_evaluation(
 
 
 def _load_ground_truth() -> dict[str, dict]:
+    """Load ground truth JSON into a file_path -> record map."""
     if not os.path.isfile(GROUND_TRUTH_PATH):
         return {}
     try:
@@ -355,6 +361,7 @@ def _load_ground_truth() -> dict[str, dict]:
 
 
 def _list_py_files(directory: str) -> list[str]:
+    """Return sorted list of .py file paths from a directory."""
     if not os.path.isdir(directory):
         return []
     return sorted(

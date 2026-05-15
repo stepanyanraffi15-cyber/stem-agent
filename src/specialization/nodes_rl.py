@@ -15,6 +15,7 @@ from src.specialization.models import (
 )
 from src.specialization.state import AgentReview, RLState, VariantResult
 from src.stem.models import LLMMessage, Skill
+
 logger = structlog.get_logger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
