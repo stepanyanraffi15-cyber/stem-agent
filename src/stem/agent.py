@@ -41,6 +41,12 @@ review task. Assess your confidence for each bug type you might encounter. Be ho
 about what you are likely to miss."""
 
 
+# Three separate LLM calls, not one. Each step has a distinct cognitive role that
+# conflicts with the others if combined: theory-building needs open-ended exploration
+# ("what makes this task hard?"), configuration needs structured constraint satisfaction
+# ("write a prompt that encodes this theory"), and uncertainty estimation needs honest
+# calibration ("where will you fail?"). A single combined call forces the model to
+# satisfy all three constraints simultaneously, collapsing the chain-of-thought advantage.
 class StemAgent:
     def __init__(self, llm_client: LLMClient) -> None:
         self._llm = llm_client
@@ -104,6 +110,10 @@ class StemAgent:
         bug_types: list[str],
         config: StemConfig,
     ) -> list[UncertaintyPrior]:
+        # Uncertainty is assessed AFTER configure, not before. The agent is asked
+        # "how confident are you given THIS specific prompt?" — conditioned on its
+        # own written instructions, not on abstract bug type names. This grounds the
+        # priors in the agent's actual detection strategy rather than prior knowledge.
         if not bug_types:
             raise ValueError("bug_types must not be empty")
 

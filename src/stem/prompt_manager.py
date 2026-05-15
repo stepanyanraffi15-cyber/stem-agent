@@ -73,6 +73,11 @@ class PromptManager:
         return self.versions[-1].prompt
 
     def detect_catastrophic_forgetting(self, new_score: float) -> bool:
+        # Two-layer detection: statistical (soft) + absolute (hard floor).
+        # Statistical catches gradual drift — score slipping below local mean by 1.5σ.
+        # Hard floor catches sudden collapse — score dropping >15% below the best ever seen.
+        # IBM Silent Failures (arXiv:2511.04032): performance can degrade without an
+        # explicit error signal; monitoring both layers prevents undetected regression.
         if len(self.versions) < MIN_VERSIONS_FOR_CI:
             return False
 
@@ -106,6 +111,11 @@ class PromptManager:
         locked_skills: list[Skill],
         llm_client: LLMClient,
     ) -> str:
+        # Pure revert loses whatever useful direction the gradient found.
+        # EWC (Kirkpatrick et al. 2017) in weight space: constrain updates to
+        # preserve "important weights" (here: locked skill language). The LLM
+        # merges new improvements into the best historical prompt while treating
+        # locked skill descriptions as invariants it must not overwrite.
         best = self.get_best_version()
         if best is None:
             logger.warning("prompt_manager.rollback.no_best_version_found")
@@ -137,6 +147,10 @@ class PromptManager:
         return merged
 
     def compute_improvement_ci(self) -> tuple[float, float] | None:
+        # Bootstrap CI on the improvement deltas (not on scores). If the upper
+        # bound of the 95% CI on recent improvements is below IMPROVEMENT_EPSILON,
+        # we are statistically confident the prompt has stopped improving.
+        # This replaces an arbitrary iteration limit with principled convergence detection.
         if len(self.versions) < MIN_VERSIONS_FOR_CI:
             return None
 
@@ -150,6 +164,10 @@ class PromptManager:
         return lower, upper
 
     def should_stop(self, max_iterations: int = 15) -> tuple[bool, str]:
+        # Three stopping conditions in priority order:
+        # 1. Performance threshold: no further improvement needed once F1 > 0.85.
+        # 2. Diminishing returns: CI upper bound < epsilon means the loop has converged.
+        # 3. Hard limit: safety ceiling against runaway API costs.
         best = self.get_best_version()
 
         if best is not None and best.score > 0.85:

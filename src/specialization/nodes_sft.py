@@ -59,6 +59,11 @@ def load_demonstrations(state: SFTState) -> dict:
     return {"demonstrations": files}
 
 
+# Demonstration-based learning: showing the model (code, known_bug) pairs gives it
+# a supervised signal it cannot derive from code alone. The key is pairing each file
+# with its GT label — without the label the model might extract style observations
+# instead of detection strategies. This step runs before critique because you cannot
+# critique a strategy you haven't extracted yet.
 def extract_patterns(state: SFTState) -> dict:
     if not state.get("demonstrations"):
         raise ValueError("demonstrations must not be empty")
@@ -98,6 +103,12 @@ def extract_patterns(state: SFTState) -> dict:
     return {"extracted_patterns": patterns}
 
 
+# Constitutional AI (Bai et al. 2022, arXiv:2212.08073): self-critique separates
+# memorization from generalization. The extracted patterns are shaped by the specific
+# training examples — some will only work on those exact files. The critique forces
+# the LLM to ask: "does this strategy survive outside the training set, and could it
+# produce false positives on clean code?" Patterns that don't survive revision are
+# precisely the ones that would hurt OOD performance.
 def constitutional_critique(state: SFTState) -> dict:
     if not state.get("extracted_patterns"):
         raise ValueError("extracted_patterns must not be empty")
@@ -120,6 +131,11 @@ def constitutional_critique(state: SFTState) -> dict:
     return {"critiqued_patterns": revised}
 
 
+# Incorporate critiqued patterns into the base prompt, not replace it.
+# The stem-phase base prompt encodes the agent's theory of the task (detection scope,
+# false-positive control, output format). The critiqued patterns add concrete detection
+# strategies on top of that theory. Replacing the base prompt would discard the theory
+# and risk reverting to a generic reviewer — incorporating preserves both.
 def rewrite_prompt(state: SFTState) -> dict:
     if not state.get("critiqued_patterns"):
         raise ValueError("critiqued_patterns must not be empty")

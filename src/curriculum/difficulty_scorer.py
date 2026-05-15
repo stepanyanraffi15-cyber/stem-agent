@@ -18,6 +18,13 @@ class ScoredFile:
     difficulty: float
 
 
+# Difficulty score formula (from AST analysis):
+#   0.3 × cyclomatic_proxy  +  0.4 × function_count_norm  +  0.3 × nesting_depth_norm
+# Function count is weighted highest because more functions = more independent code paths
+# for the agent to reason about simultaneously. This ordering matters for RL convergence:
+# easy files (single function, flat structure) provide a stable, low-noise gradient
+# signal early when the verbal gradient direction is still uncertain. Hard files produce
+# noisier rewards and are only meaningful once the agent has a working baseline strategy.
 def score_directory(directory: str) -> list[ScoredFile]:
     """Score all .py files in directory by difficulty, sorted easy → hard."""
     if not os.path.isdir(directory):

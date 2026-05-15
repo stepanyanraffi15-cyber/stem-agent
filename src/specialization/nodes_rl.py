@@ -35,6 +35,9 @@ DEFAULT_MAX_ITERATIONS = 10
 NUM_VARIANTS = 3
 VARIANT_STRATEGIES: list[str] = ["focused", "broad", "alternative"]
 
+# Simulated annealing (Kirkpatrick 1983): explore widely early when the gradient
+# direction is uncertain; commit to exploitation as evidence accumulates.
+# Three phases mirror cooling schedules: high temperature = high variance = exploration.
 TEMPERATURES_EARLY: list[float] = [0.6, 0.9, 1.2]
 TEMPERATURES_MID: list[float] = [0.4, 0.6, 0.9]
 TEMPERATURES_LATE: list[float] = [0.2, 0.4, 0.6]
@@ -91,6 +94,9 @@ def get_temperatures(iteration: int) -> list[float]:
     return TEMPERATURES_LATE
 
 
+# Curriculum learning (Bengio et al. 2009): files are pre-sorted easy→hard by AST
+# difficulty score. Presenting easy examples first stabilizes the gradient signal —
+# the agent builds a baseline understanding before encountering ambiguous cases.
 def curriculum_step(state: RLState) -> dict:
     idx = state["curriculum_index"]
     order = state["curriculum_order"]
@@ -151,6 +157,11 @@ def _detection_f1(issues: list[dict], gt_bug_type: str) -> float:
     return 2 * precision * recall / (precision + recall)
 
 
+# The reward MUST measure agent output quality, not verifier output.
+# The verifier (pylint) is deterministic: it always finds bare_except in a file
+# containing bare_except, regardless of the agent's system prompt. Using verifier
+# reward as the RL signal means the reward never varies with the prompt — the gradient
+# has no direction. We use agent F1 instead: does the agent correctly label the bug?
 def compute_reward(state: RLState) -> dict:
     order = state["curriculum_order"]
     idx = max(0, state["curriculum_index"] - 1)
@@ -207,6 +218,10 @@ def compute_reward(state: RLState) -> dict:
     }
 
 
+# Forgetting check runs before gradient computation, not after. This is intentional:
+# if the last prompt update degraded performance (catastrophic forgetting), computing
+# a gradient on top of a broken prompt produces a misleading direction. Rollback first,
+# then compute the gradient from the recovered state.
 def check_forgetting(state: RLState) -> str:
     history = state["performance_history"]
     if not history:
@@ -250,6 +265,9 @@ def lazy_gradient(state: RLState) -> dict:
     last_rollback_iter = rollback_events[-1]["iteration"] if rollback_events else -1
     just_rolled_back = last_rollback_iter == iteration
 
+    # Gradient reuse: recomputing the verbal gradient every iteration amplifies
+    # noise when the agent is making small, steady progress. Reuse the last gradient
+    # until a genuine plateau (no_improvement ≥ 2) or a rollback forces fresh analysis.
     should_recompute = (
         iteration <= 1
         or no_improvement >= PLATEAU_THRESHOLD
@@ -263,6 +281,12 @@ def lazy_gradient(state: RLState) -> dict:
     recent = state.get("recent_failures", [])
     failure_memory = state["failure_memory"]
 
+    # TextGrad (arXiv:2406.07496): a verbal gradient is the natural-language description
+    # of the difference between actual output and expected output. Passing only failure
+    # counts gives the gradient LLM no information about WHY the output was wrong.
+    # Passing the actual agent output alongside the expected label lets it diagnose
+    # the specific prompt weakness — e.g. "the prompt says 'find errors' but the agent
+    # reports style issues because it lacks the vocabulary for mutable default arguments."
     comparisons = [
         {
             "file": os.path.basename(f.get("file_path", "")),
@@ -335,6 +359,12 @@ def _generate_single_variant(
     )
 
 
+# Three strategies, not three temperatures of the same direction.
+# Diverse beam search (Vijayakumar et al. 2018): diversity must be enforced
+# structurally, not by sampling noise. "focused" applies the gradient literally;
+# "broad" generalizes it to related failure modes; "alternative" discards it and
+# invents a different solution to the same problem. This ensures the beam covers
+# different regions of the prompt space, not just nearby perturbations.
 def generate_all_variants(state: RLState) -> dict:
     """Generate all prompt variants in parallel and return them as a single write."""
     temps = state["temperatures"]
@@ -428,6 +458,10 @@ def _score_variant(
     )
 
 
+# KAMI (arXiv:2512.07497): context pollution — reviewing multiple files in a single
+# LLM call causes the model to let early file impressions affect later ones.
+# Batches of VALIDATION_BATCH_SIZE=3 limit this without sending 6 individual calls.
+# Each batch is reviewed with an explicit "COMPLETELY INDEPENDENTLY" instruction.
 def evaluate_batch(state: RLState) -> dict:
     """Score all 3 variants in parallel against the validation set."""
     validation_files = _load_validation_files()
@@ -495,6 +529,9 @@ def select_best_and_update(state: RLState) -> dict:
     else:
         no_improvement += 1
 
+    # Save every iteration unconditionally. Conditional saving (only on improvement)
+    # prevented PromptManager from accumulating version history when reward was flat,
+    # which silently disabled both the EWC rollback detection and the CI-based stopping.
     score_to_record = best_score if (best and best_score > current_score) else current_score
     pm.save_version(
         prompt=new_prompt,

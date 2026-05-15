@@ -10,6 +10,11 @@ MATCH_LINE_TOLERANCE = 2
 CALIBRATION_BINS = 10
 BOOTSTRAP_SAMPLES = 1000
 
+# Alias table: different LLM models and output schemas produce synonyms for the same
+# bug type. GPT-4o-mini might output "W0702"; GPT-5.4 might output "bare except clause";
+# the stem-generated prompt produces findings[].category values like "exception_handling".
+# Without normalization, matching treats these as different bugs and precision/recall
+# collapse to 0 even when the agent correctly identified the issue.
 BUG_TYPE_ALIASES: dict[str, set[str]] = {
     "bare_except": {
         "bare_except", "bare-except", "w0702", "bare_except_clause",
@@ -76,6 +81,10 @@ def bug_type_matches(gt_bug_type: str, agent_issues: list[dict]) -> bool:
     }
 
     for issue in agent_issues:
+        # Field fallback chain: the stem-generated system prompt outputs findings[].category
+        # and findings[].title, while the original intended schema uses issues[].bug_type.
+        # Checking all three fields makes matching work regardless of which schema the
+        # model followed — this was the fix for the all-zero metrics bug.
         agent_type = normalize_bug_type(
             issue.get("bug_type", "")
             or issue.get("category", "")

@@ -70,6 +70,10 @@ def _route_condition(state: OuterState) -> str:
     return state["condition"]
 
 
+# Curriculum order is computed once here and fixed for the entire run.
+# If it were recomputed inside the RL loop, filesystem ordering could change between
+# iterations (e.g. after a restart), breaking the easy→hard guarantee that the
+# curriculum depends on. The sorted list is passed into state and never re-derived.
 def _prepare_rl(state: OuterState) -> dict:
     """Initialize all RL-specific state fields before entering the RL subgraph."""
     curriculum_order = _list_py_files(TRAINING_BUGS_DIR)
@@ -204,6 +208,9 @@ def evaluate_final_node(state: OuterState) -> dict:
     held_out_files = _list_py_files(HELD_OUT_DIR)
     all_files = training_files + held_out_files
 
+    # Baseline is deterministic for a fixed prompt — re-running it for every condition
+    # wastes ~50 LLM calls (~$0.15, ~15s) per run. run_baseline() executes first and
+    # caches results in state; both SFT and RL evaluate_final_node reuse the same cache.
     cached = state.get("cached_baseline_eval")
     if cached is not None:
         baseline_results = cached
@@ -306,6 +313,9 @@ def _score_one_file(
     verifier_output = pipeline.run_all_verifiers(code, gt)
     reward = verifier_output.shaped_reward
 
+    # Schema fallback: the stem-generated system prompt instructs the model to output
+    # findings[], not issues[]. Without this fallback, raw.get("issues",[]) returns []
+    # for every file, making tp=0 everywhere and collapsing all metrics to 0.0.
     issues = raw.get("issues") or raw.get("findings", [])
     tp = 1 if _bug_type_matches(gt.bug_type, issues) else 0
     fp = max(0, len(issues) - tp)

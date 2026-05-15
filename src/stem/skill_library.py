@@ -53,6 +53,12 @@ class SkillLibrary:
             logger.info("skill_library.add_skill.new", name=skill.name)
 
     def update_confidence(self, skill_name: str, confirmed: bool) -> None:
+        # Bayesian online update: `new_conf = (conf × count ± 1) / (count + 1)`.
+        # This is the posterior mean for a Bernoulli likelihood with a uniform prior —
+        # each confirmed/refuted observation shifts confidence proportionally to the
+        # accumulated evidence. Locking requires BOTH high confidence AND MIN_EVIDENCE_TO_LOCK
+        # observations: a single success can yield 1.0 confidence but one data point is
+        # not enough to freeze the skill language in the prompt as an EWC invariant.
         if skill_name not in self.skills:
             raise ValueError(f"Unknown skill: {skill_name!r}")
 
