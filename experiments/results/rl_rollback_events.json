@@ -1,12 +1,1 @@
-[
-  {
-    "iteration": 4,
-    "reason": "catastrophic_forgetting",
-    "merged_prompt_length": 1250
-  },
-  {
-    "iteration": 5,
-    "reason": "catastrophic_forgetting",
-    "merged_prompt_length": 1384
-  }
-]
+[]

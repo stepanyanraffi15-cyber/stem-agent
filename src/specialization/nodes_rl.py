@@ -181,6 +181,8 @@ def compute_reward(state: RLState) -> dict:
             "bug_type": bug_type,
             "file_path": file_path,
             "iteration": state["iteration"],
+            "agent_issues": issues,
+            "expected_bug_type": bug_type,
         })
         recent_failures = recent_failures[-RECENT_FAILURES_MAX:]
 
@@ -261,15 +263,26 @@ def lazy_gradient(state: RLState) -> dict:
     recent = state.get("recent_failures", [])
     failure_memory = state["failure_memory"]
 
+    comparisons = [
+        {
+            "file": os.path.basename(f.get("file_path", "")),
+            "expected_bug_type": f.get("expected_bug_type", f.get("bug_type", "?")),
+            "agent_reported_issues": f.get("agent_issues", []),
+        }
+        for f in recent
+    ]
+
     user_content = (
         f"Current prompt:\n{state['current_prompt']}\n\n"
-        f"Failure memory (persistent failures, weighted higher):\n{json.dumps(failure_memory)}\n\n"
-        f"Recent failed reviews:\n{json.dumps(recent)}\n\n"
+        f"Failure memory (bug types the agent persistently misses):\n{json.dumps(failure_memory)}\n\n"
+        f"Recent failures — agent output vs expected (TextGrad-style diff):\n"
+        f"{json.dumps(comparisons, indent=2)}\n\n"
         "Compute a verbal gradient:\n"
-        "1. What specific prompt weakness caused these failures?\n"
-        "2. What exact change addresses it? Be specific, quote the prompt.\n"
-        "3. What must NOT change (proven to work on these bug types)?\n"
-        "Return JSON: {\"weakness\": str, \"proposed_change\": str, \"preserve\": str, \"confidence\": float}"
+        "1. What specific prompt weakness explains the gap between agent_reported_issues "
+        "and expected_bug_type?\n"
+        "2. What exact wording change closes that gap? Quote the current prompt.\n"
+        "3. What must NOT change (has already produced correct labels)?\n"
+        'Return JSON: {"weakness": str, "proposed_change": str, "preserve": str, "confidence": float}'
     )
 
     client = get_llm_client("gradient")
