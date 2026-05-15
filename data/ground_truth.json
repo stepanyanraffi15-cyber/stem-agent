@@ -498,5 +498,65 @@
     "detectable_by_ast": false,
     "detectable_by_execution": false,
     "split": "held_out"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/validation/val_001.py",
+    "bug_type": "bare_except",
+    "bug_line": 4,
+    "bug_description": "Bare except catches all exceptions including KeyboardInterrupt",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": true,
+    "detectable_by_execution": false,
+    "split": "validation"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/validation/val_002.py",
+    "bug_type": "mutable_default_argument",
+    "bug_line": 1,
+    "bug_description": "Mutable default argument [] shared across calls",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": true,
+    "detectable_by_execution": false,
+    "split": "validation"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/validation/val_003.py",
+    "bug_type": "undefined_variable",
+    "bug_line": 4,
+    "bug_description": "Variable 'tax_rate' used before definition",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": true,
+    "split": "validation"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/validation/val_004.py",
+    "bug_type": "equality_none_check",
+    "bug_line": 2,
+    "bug_description": "Use 'is None' not '== None' for None comparison",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "validation"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/validation/val_005.py",
+    "bug_type": "shadowed_builtin",
+    "bug_line": 1,
+    "bug_description": "Parameter 'list' shadows built-in",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": false,
+    "detectable_by_execution": false,
+    "split": "validation"
+  },
+  {
+    "file_path": "/Users/raffi/Desktop/YSU/stem-agent/data/validation/val_006.py",
+    "bug_type": "bare_except",
+    "bug_line": 5,
+    "bug_description": "Bare except catches all exceptions including KeyboardInterrupt",
+    "detectable_by_pylint": true,
+    "detectable_by_ast": true,
+    "detectable_by_execution": false,
+    "split": "validation"
   }
 ]

@@ -1,8 +1,7 @@
-def deduplicate(items: list[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for item in items:
-        if item not in seen:
-            seen.add(item)
-            result.append(item)
-    return result
+def load_config(path: str) -> dict:
+    try:
+        with open(path) as f:
+            import json
+            return json.load(f)
+    except:
+        return {}

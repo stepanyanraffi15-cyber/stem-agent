@@ -1,5 +1,5 @@
-def flatten(nested: list[list[int]]) -> list[int]:
-    result: list[int] = []
-    for sublist in nested:
-        result.extend(sublist)
-    return result
+def compute_total(prices: list[float]) -> float:
+    total = 0.0
+    for price in prices:
+        total += price * tax_rate
+    return total

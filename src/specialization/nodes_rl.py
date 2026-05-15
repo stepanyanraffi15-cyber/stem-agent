@@ -31,7 +31,7 @@ EARLY_EXIT_DELTA = 0.10
 PLATEAU_THRESHOLD = 2
 SKILL_DEFAULT_CONFIDENCE = 0.5
 NO_IMPROVEMENT_STOP_THRESHOLD = 5
-DEFAULT_MAX_ITERATIONS = 15
+DEFAULT_MAX_ITERATIONS = 10
 NUM_VARIANTS = 3
 VARIANT_STRATEGIES: list[str] = ["focused", "broad", "alternative"]
 
@@ -479,15 +479,16 @@ def select_best_and_update(state: RLState) -> dict:
     if best and best_score > current_score:
         new_prompt = best["prompt"]
         no_improvement = 0
-        locked_names = [s.name for s in sl.get_locked_skills()]
-        pm.save_version(
-            prompt=new_prompt,
-            score=best_score,
-            iteration=state["iteration"],
-            skills_locked=locked_names,
-        )
     else:
         no_improvement += 1
+
+    score_to_record = best_score if (best and best_score > current_score) else current_score
+    pm.save_version(
+        prompt=new_prompt,
+        score=score_to_record,
+        iteration=state["iteration"],
+        skills_locked=[s.name for s in sl.get_locked_skills()],
+    )
 
     max_iterations: int = state.get("max_iterations") or DEFAULT_MAX_ITERATIONS
     if state["iteration"] >= max_iterations or no_improvement >= NO_IMPROVEMENT_STOP_THRESHOLD:

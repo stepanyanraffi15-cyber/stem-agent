@@ -1,7 +1,5 @@
-def fibonacci(n: int) -> int:
-    if n <= 1:
-        return n
-    a, b = 0, 1
-    for _ in range(2, n + 1):
-        a, b = b, a + b
-    return b
+def safe_parse_int(text: str) -> int | None:
+    try:
+        return int(text)
+    except:
+        return None

@@ -1,3 +1,3 @@
-def is_palindrome(text: str) -> bool:
-    cleaned = "".join(c.lower() for c in text if c.isalnum())
-    return cleaned == cleaned[::-1]
+def collect_items(item: str, bucket: list[str] = []) -> list[str]:
+    bucket.append(item)
+    return bucket

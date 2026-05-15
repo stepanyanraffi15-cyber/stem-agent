@@ -1,11 +1,2 @@
-def binary_search(items: list[int], target: int) -> int:
-    lo, hi = 0, len(items) - 1
-    while lo <= hi:
-        mid = (lo + hi) // 2
-        if items[mid] == target:
-            return mid
-        if items[mid] < target:
-            lo = mid + 1
-        else:
-            hi = mid - 1
-    return -1
+def count_items(list: list[int]) -> int:
+    return len(list)
