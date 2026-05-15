@@ -1,6 +1,10 @@
 # stem-agent
 
-Stem-phase self-configuring agent for Python code review — outcome-based (RL-style) vs demonstration-based (SFT-style) prompt specialization, evaluated on out-of-distribution generalization.
+A self-specializing LLM agent for Python code review that answers one question: **does outcome-based (RL-style) prompt specialization generalize out-of-distribution better than demonstration-based (SFT-style) specialization?**
+
+Most prompt optimization work either fine-tunes model weights or manually engineers prompts. This project explores a third path: the agent **writes and rewrites its own system prompt** through iterative feedback, with no human-authored examples and no weight updates. The stem phase runs once before any training data is seen — the agent reads the task description, builds a theory of what the task requires, writes its own initial system prompt, and estimates its uncertainty. Two specialization conditions then run in parallel from that shared starting point: SFT refines the prompt using demonstration critiques; RL refines it using verifier-grounded outcome rewards and verbal gradients.
+
+The OOD benchmark is the key test: training bugs are pylint-detectable (the verifier gives gradient signal during RL), held-out bugs are logic errors that pylint cannot catch. If RL only memorized the verifier signal it would score no better than baseline on held-out. If it learned to reason about code, it generalizes — and that difference is what this experiment measures.
 
 `LangGraph` · `LangSmith` · `pylint/AST/execution verifier` · `TextGrad verbal gradient` · `EWC rollback`
 
@@ -53,7 +57,9 @@ The OOD split makes this testable: training bugs are pylint-detectable (the veri
 
 ## What This Implements
 
-The stem phase maps to four behaviors:
+The stem phase is the agent's self-configuration step — it runs once before any training file is seen. The agent receives only a task description (not data), builds a theory of what the task demands, writes its own initial system prompt from that theory, and estimates where it is uncertain. This mirrors how a specialist starts a new domain: form a hypothesis first, then test it against evidence. Standard prompt optimization skips this step and starts directly from examples.
+
+From that shared starting point, two specialization conditions run in parallel on the same 30 training files:
 
 ```
 OBSERVE     read task description → build theory before any training data
@@ -63,6 +69,8 @@ SPECIALIZE  two conditions in parallel:
               B  RL-style:   curriculum loop → shaped reward → verbal gradient → variants → EWC
 STOP        principled: CI on improvement delta, not arbitrary N
 ```
+
+The stopping criterion is not an arbitrary iteration limit but a confidence interval on the improvement delta — the loop stops when it can no longer demonstrate that the current prompt is better than the previous best.
 
 ### Shaped reward
 
@@ -190,7 +198,7 @@ python -c "from src.curriculum.dataset_builder import generate_all; generate_all
 # Verify setup
 pytest tests/ -v
 
-# Full experiment (~20 min, ~$0.40 with gpt-4o-mini/gpt-4o)
+# Full experiment (~20 min, ~$1-2 with gpt-5.4-mini/gpt-5.4)
 python -m experiments.run_all --condition all
 
 # Skip stem phase on re-runs
@@ -202,8 +210,8 @@ python -m experiments.run_all --condition rl --fast
 
 | Parameter | Default | Notes |
 |---|---|---|
-| `MODEL_NAME_CHEAP` | `gpt-4o-mini` | Agent review (high volume, structured JSON) |
-| `MODEL_NAME_STRONG` | `gpt-4o` | Gradient, variant generation, stem phase |
+| `MODEL_NAME_CHEAP` | `gpt-5.4-mini` | Agent review (high volume, structured JSON) |
+| `MODEL_NAME_STRONG` | `gpt-5.4` | Gradient, variant generation, stem phase |
 | `DEFAULT_MAX_ITERATIONS` | 10 | Below 10: curve too short. Above 15: diminishing returns on 6 validation files. |
 | `FORGETTING_THRESHOLD` | 1.5σ | Hard floor: `best × 0.85`; soft floor: `mean(last_3) − 1.5σ` |
 | `LOCK_THRESHOLD` | 0.8 | Minimum confidence + 3 evidence counts to lock a skill |
