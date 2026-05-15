@@ -183,7 +183,7 @@ class LLMClient:
                     model=self._model_name,
                     messages=[{"role": m.role, "content": m.content} for m in messages],
                     temperature=temperature,
-                    max_tokens=max_tokens,
+                    max_completion_tokens=max_tokens,
                 )
                 return LLMResponse(
                     content=result.choices[0].message.content or "",

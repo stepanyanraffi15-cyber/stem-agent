@@ -152,7 +152,7 @@ def test_get_llm_client_thread_safe(monkeypatch: pytest.MonkeyPatch) -> None:
             t.join()
 
     assert len(call_log) == 10
-    cheap_model = "gpt-4o-mini"
+    cheap_model = os.environ.get("MODEL_NAME_CHEAP", "gpt-5.4-mini")
     assert all(m == cheap_model for m in call_log), (
         f"Some threads saw wrong MODEL_NAME: {call_log}"
     )
