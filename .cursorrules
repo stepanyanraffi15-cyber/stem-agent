@@ -1,0 +1,92 @@
+# Stem Agent — Cursor Context
+
+## What this project is
+A research project for JetBrains AI Engineering internship.
+We are building a "stem agent" — one that receives a task class,
+self-configures, specializes through feedback, and knows when to stop.
+Domain: Python code review. Research question: does RL-style
+outcome-based specialization generalize OOD better than SFT-style
+demonstration-based specialization?
+
+## What is already built — DO NOT touch these
+- src/verifier/          Multi-signal verifier: pylint + AST + execution + shaped reward
+- src/curriculum/        Difficulty scorer + dataset builder (30 training + 20 held-out files)
+- src/stem/              LLM client, StemAgent, SkillLibrary, PromptManager
+- src/specialization/    LangGraph subgraphs: SFT and RL conditions
+- data/                  All Python bug files + ground_truth.json — generated, do not edit
+- tests/unit/            All unit tests — green, do not break them
+
+## Architecture — components and their roles
+src/verifier/pipeline.py       → run_all_verifiers(code, ground_truth) → VerifierOutput
+src/verifier/shaped_reward.py  → compute_reward() → float [0.0, 1.0]
+src/curriculum/difficulty_scorer.py → score_directory() → list[ScoredFile] sorted easy→hard
+src/stem/agent.py              → StemAgent: theorize() → configure() → estimate_uncertainty()
+src/stem/skill_library.py      → Voyager-inspired skill store, Bayesian confidence updates
+src/stem/prompt_manager.py     → EWC-inspired rollback, CI-based stopping, version history
+src/specialization/graphs.py   → build_outer_graph(), build_sft_subgraph(), build_rl_subgraph()
+src/specialization/runner.py   → ExperimentRunner: run(), resume(), get_state_at_iteration()
+src/prompts/                   → All LLM prompts used by the agent — load from here, not hardcoded
+
+## LangGraph architecture
+Outer graph: routes to SFT subgraph or RL subgraph based on condition field.
+Both subgraphs feed into evaluate_final_node.
+SqliteSaver checkpointing at experiments/checkpoints.db.
+Send API used for parallel variant generation (3 variants per iteration).
+MemorySaver used in all tests — never SqliteSaver in tests.
+
+## Model routing
+agent_review:  gpt-4o-mini  (high volume, structured JSON, cheap)
+gradient:      gpt-4o       (needs reasoning quality)
+variant_gen:   gpt-4o       (needs creativity)
+ewc_merge:     gpt-4o       (needs precision)
+stem_phase:    gpt-4o       (foundation, runs once)
+
+## Key design decisions (grounded in papers)
+- Shaped reward (not binary): Chu et al. 2025, arXiv:2501.17161
+- Verbal gradient: TextGrad, arXiv:2406.07496
+- Diverse variants (not temperature sampling): Vijayakumar 2018
+- Simulated annealing temperatures: Kirkpatrick 1983
+- EWC rollback: Kirkpatrick et al. 2017
+- Failure memory: AgenTracer, arXiv:2509.03312
+- Batched evaluation: context pollution prevention, KAMI arXiv:2512.07497
+- Skill library: Voyager, arXiv:2305.16291
+- Constitutional critique (SFT): Bai et al. 2022, arXiv:2212.08073
+- Curriculum ordering: Bengio et al. 2009
+
+## Prompts
+All LLM prompts live in src/prompts/ as .md files with {placeholder} variables.
+Load them at runtime: Path("src/prompts/stem_phase/theorize.md").read_text()
+Never hardcode prompt strings in Python files.
+Each prompt file includes: the prompt text, expected JSON schema, paper citation.
+
+## Data layout
+data/training_bugs/    30 files, 5 pylint-detectable bug types × 6 each
+data/training_clean/   same 30 files, bugs fixed
+data/held_out_bugs/    20 files, 4 logic-error bug types — ZERO pylint issues
+data/held_out_clean/   same 20 files, bugs fixed
+data/validation/       6 files — used ONLY for tree search node evaluation
+data/ground_truth.json list of GroundTruth dicts, one per buggy file
+
+## What is NOT built yet
+- src/evaluation/      Metrics: precision/recall/F1, generalization gap, Pareto, calibration
+- experiments/         Experiment runner scripts, results storage
+- src/logging/         Rich colorful structured logs (planned for Component 7)
+- writeup/             4-page research write-up (Component 8)
+
+## Code quality rules — always apply
+- Type hints on every function
+- structlog for all logging, never print()
+- Dataclasses for return types, never bare dicts
+- No magic numbers — constants at module top
+- Every function has a one-line docstring minimum
+- Comments explain WHY not WHAT
+- MemorySaver in all tests, never SqliteSaver
+- Zero real LLM API calls in unit tests — always mock
+
+## What to never do
+- Never modify src/verifier/, src/curriculum/, src/stem/ unless explicitly told
+- Never write free-form text returns from LLM calls — always structured JSON
+- Never hardcode prompt strings in Python — always load from src/prompts/
+- Never use print() — always structlog
+- Never use bare dicts as return types — always dataclasses
+- Never add optional features not in the spec without asking first
