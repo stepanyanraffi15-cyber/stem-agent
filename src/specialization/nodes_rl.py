@@ -309,6 +309,13 @@ def generate_variant(state: VariantState) -> dict:
     try:
         parsed = json.loads(raw.content)
         new_prompt = parsed.get("system_prompt", state["current_prompt"])
+        if not isinstance(new_prompt, str) or not new_prompt.strip():
+            logger.warning(
+                "rl.generate_variant.invalid_prompt_type",
+                variant_id=variant_id,
+                got=type(new_prompt).__name__,
+            )
+            new_prompt = state["current_prompt"]
     except json.JSONDecodeError:
         new_prompt = state["current_prompt"]
 
@@ -506,8 +513,11 @@ def check_stop(state: RLState) -> str:
 
 
 def finalize_rl(state: RLState) -> dict:
-    logger.info("rl.finalize", prompt_length=len(state["current_prompt"]))
-    return {"final_prompt": state["current_prompt"]}
+    prompt = state["current_prompt"]
+    if not isinstance(prompt, str):
+        raise TypeError(f"current_prompt must be str, got {type(prompt).__name__}")
+    logger.info("rl.finalize", prompt_length=len(prompt))
+    return {"final_prompt": prompt}
 
 
 def _load_ground_truth() -> dict[str, dict]:

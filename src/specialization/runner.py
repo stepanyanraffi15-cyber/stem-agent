@@ -71,7 +71,7 @@ class ExperimentRunner:
             )
 
         final_state: dict = {}
-        for chunk in self.graph.stream(initial_state, config=config, stream_mode="values"):
+        for chunk in self.graph.stream(initial_state, config=config, stream_mode="updates"):
             if isinstance(chunk, dict):
                 node_name = next(iter(chunk), "update")
                 logger.info(
@@ -80,7 +80,9 @@ class ExperimentRunner:
                     experiment=experiment_id,
                     condition=condition,
                 )
-                final_state = chunk
+                for node_output in chunk.values():
+                    if isinstance(node_output, dict):
+                        final_state.update(node_output)
 
         return final_state
 
