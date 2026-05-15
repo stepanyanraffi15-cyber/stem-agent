@@ -15,6 +15,8 @@ from src.evaluation.metrics import bug_type_matches as _bug_type_matches
 from src.specialization.llm_factory import get_llm_client, get_max_tokens
 from src.specialization.models import prompt_manager_to_dict, skill_library_to_dict
 from src.specialization.nodes_rl import (
+    DEFAULT_MAX_ITERATIONS,
+    TEMPERATURES_EARLY,
     check_forgetting,
     check_stop,
     compute_reward,
@@ -80,12 +82,12 @@ def _prepare_rl(state: OuterState) -> dict:
         "failure_memory": {},
         "consecutive_no_improvement": 0,
         "last_verbal_gradient": None,
-        "temperatures": [0.6, 0.9, 1.2],
+        "temperatures": TEMPERATURES_EARLY,
         "variant_results": [],
         "skill_library": skill_library_to_dict(SkillLibrary()),
         "prompt_manager": prompt_manager_to_dict(PromptManager()),
         "stopping_reason": None,
-        "max_iterations": state.get("max_iterations") or 15,
+        "max_iterations": state.get("max_iterations") or DEFAULT_MAX_ITERATIONS,
         "rollback_events": [],
         "recent_failures": [],
         "agent_reviews": [],

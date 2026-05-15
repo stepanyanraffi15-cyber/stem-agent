@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import functools
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import structlog
 
+from src.evaluation.metrics import bug_type_matches as _bug_type_matches
 from src.specialization.llm_factory import get_llm_client, get_max_tokens
 from src.specialization.models import (
     prompt_manager_from_dict,
@@ -21,11 +24,22 @@ logger = structlog.get_logger(__name__)
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 GROUND_TRUTH_PATH = str(_PROJECT_ROOT / "data" / "ground_truth.json")
 VALIDATION_DIR = str(_PROJECT_ROOT / "data" / "validation")
+
 VALIDATION_BATCH_SIZE = 3
 RECENT_FAILURES_MAX = 3
 EARLY_EXIT_DELTA = 0.10
 PLATEAU_THRESHOLD = 2
 SKILL_DEFAULT_CONFIDENCE = 0.5
+NO_IMPROVEMENT_STOP_THRESHOLD = 5
+DEFAULT_MAX_ITERATIONS = 15
+NUM_VARIANTS = 3
+VARIANT_STRATEGIES: list[str] = ["focused", "broad", "alternative"]
+
+TEMPERATURES_EARLY: list[float] = [0.6, 0.9, 1.2]
+TEMPERATURES_MID: list[float] = [0.4, 0.6, 0.9]
+TEMPERATURES_LATE: list[float] = [0.2, 0.4, 0.6]
+TEMPERATURE_PHASE_MID: int = 5
+TEMPERATURE_PHASE_LATE: int = 10
 
 _GRADIENT_SYSTEM = (
     "You are a verbal gradient optimizer for LLM system prompts. "
@@ -69,11 +83,12 @@ _BATCH_REVIEW_SYSTEM_TEMPLATE = (
 
 
 def get_temperatures(iteration: int) -> list[float]:
-    if iteration <= 5:
-        return [0.6, 0.9, 1.2]
-    if iteration <= 10:
-        return [0.4, 0.6, 0.9]
-    return [0.2, 0.4, 0.6]
+    """Return annealing temperature schedule for the given iteration."""
+    if iteration <= TEMPERATURE_PHASE_MID:
+        return TEMPERATURES_EARLY
+    if iteration <= TEMPERATURE_PHASE_LATE:
+        return TEMPERATURES_MID
+    return TEMPERATURES_LATE
 
 
 def curriculum_step(state: RLState) -> dict:
@@ -122,9 +137,6 @@ def review_code_batch(state: RLState) -> dict:
     }
     logger.info("rl.review_code_batch.done", file=file_path, issues=len(review["issues"]))
     return {"agent_reviews": [review]}
-
-
-from src.evaluation.metrics import bug_type_matches as _bug_type_matches
 
 
 def _detection_f1(issues: list[dict], gt_bug_type: str) -> float:
@@ -311,17 +323,14 @@ def _generate_single_variant(
 
 
 def generate_all_variants(state: RLState) -> dict:
-    """Generate all 3 prompt variants in parallel and return them as a single write."""
+    """Generate all prompt variants in parallel and return them as a single write."""
     temps = state["temperatures"]
-    strategies = ["focused", "broad", "alternative"]
 
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    results: list[VariantResult] = [None] * 3  # type: ignore[list-item]
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    results: list[VariantResult] = [None] * NUM_VARIANTS  # type: ignore[list-item]
+    with ThreadPoolExecutor(max_workers=NUM_VARIANTS) as pool:
         future_to_idx = {
-            pool.submit(_generate_single_variant, state, i, temps[i], strategies[i]): i
-            for i in range(3)
+            pool.submit(_generate_single_variant, state, i, temps[i], VARIANT_STRATEGIES[i]): i
+            for i in range(NUM_VARIANTS)
         }
         for future in as_completed(future_to_idx):
             idx = future_to_idx[future]
@@ -422,9 +431,6 @@ def evaluate_batch(state: RLState) -> dict:
 
     best_score_ref: list[float] = [current_score]
 
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import functools
-
     variants = list(state["variant_results"])
     score_fn = functools.partial(
         _score_variant,
@@ -483,8 +489,8 @@ def select_best_and_update(state: RLState) -> dict:
     else:
         no_improvement += 1
 
-    max_iterations: int = state.get("max_iterations") or 15
-    if state["iteration"] >= max_iterations or no_improvement >= 5:
+    max_iterations: int = state.get("max_iterations") or DEFAULT_MAX_ITERATIONS
+    if state["iteration"] >= max_iterations or no_improvement >= NO_IMPROVEMENT_STOP_THRESHOLD:
         should_stop = True
         reason = "max_iterations_reached" if state["iteration"] >= max_iterations else "plateau"
     else:

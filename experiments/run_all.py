@@ -15,12 +15,8 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from dotenv import load_dotenv
-
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(_PROJECT_ROOT / ".env")
-
 import structlog
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
 
@@ -37,6 +33,7 @@ from src.evaluation.metrics import (
     precision_recall_f1,
 )
 from src.specialization.llm_factory import get_llm_client, get_max_tokens
+from src.specialization.nodes_rl import DEFAULT_MAX_ITERATIONS
 from src.specialization.parallel import parallel_score_files
 from src.specialization.runner import ExperimentRunner
 from src.stem.agent import StemAgent
@@ -47,11 +44,14 @@ from src.verifier.models import GroundTruth
 
 log = structlog.get_logger(__name__)
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 CONSOLE = Console()
 RESULTS_DIR = _PROJECT_ROOT / "experiments" / "results"
 GROUND_TRUTH_PATH = _PROJECT_ROOT / "data" / "ground_truth.json"
 TRAINING_BUGS_DIR = _PROJECT_ROOT / "data" / "training_bugs"
 HELD_OUT_DIR = _PROJECT_ROOT / "data" / "held_out_bugs"
+FAST_MODE_ITERATIONS = 3
 
 REVIEW_JSON_SCHEMA = (
     'Return ONLY valid JSON: {"issues": [{"line": int, "bug_type": str, '
@@ -356,8 +356,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--iterations",
         type=int,
-        default=15,
-        help="Max RL iterations. Default 15 for full run, use 3 for testing.",
+        default=DEFAULT_MAX_ITERATIONS,
+        help=f"Max RL iterations. Default {DEFAULT_MAX_ITERATIONS} for full run, use {FAST_MODE_ITERATIONS} for testing.",
     )
     parser.add_argument(
         "--eval-only",
@@ -436,9 +436,10 @@ def _scores_from_eval_results(eval_results: dict, condition: str) -> list[FileSc
 
 def main() -> None:
     """Orchestrate the full experiment pipeline."""
+    load_dotenv(_PROJECT_ROOT / ".env")
     args = _parse_args()
     condition: str = args.condition
-    max_iterations: int = 3 if args.fast else args.iterations
+    max_iterations: int = FAST_MODE_ITERATIONS if args.fast else args.iterations
     timestamp_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
     experiment_id: str = args.experiment_id or f"{timestamp_prefix}_{condition}"
 
