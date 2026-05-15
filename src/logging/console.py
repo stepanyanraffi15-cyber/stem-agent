@@ -134,7 +134,7 @@ def log_final_summary(result: dict) -> None:
 
     Left: key metrics (F1, gap, ECE).
     Right: Pareto curve as ASCII art.
-    Bottom: conclusion line referencing Chu et al. 2025.
+    Bottom: conclusion line with RL vs SFT improvement.
 
     Accepts plain dict (dataclasses.asdict output). Zero domain imports.
     """
@@ -168,7 +168,6 @@ def log_final_summary(result: dict) -> None:
     )
     CONSOLE.print(
         "[bold]Conclusion:[/bold] "
-        "Chu et al. 2025 (arXiv:2501.17161) predicts RL generalizes, SFT memorizes. "
         f"RL improvement over SFT OOD F1: [bright_green]{rl_vs_sft:+.3f}[/bright_green]"
     )
 
