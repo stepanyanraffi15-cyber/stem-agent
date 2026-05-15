@@ -144,7 +144,7 @@ def test_rl_three_iterations_with_mocked_llm(mocker, tmp_path) -> None:
         pm = _make_mock_pm(d)
         call_count["n"] += 1
         if call_count["n"] > 6:
-            pm.should_stop = lambda: (True, "max_iterations_reached")
+            pm.should_stop = lambda max_iterations=15: (True, "max_iterations_reached")
         return pm
 
     mocker.patch(
@@ -242,7 +242,39 @@ def _make_mock_pm(d: dict):
     pm.current_index = -1
     pm._rollback_events = []
     pm.detect_catastrophic_forgetting = lambda score: False
-    pm.should_stop = lambda: (False, "continue")
+    pm.should_stop = lambda max_iterations=15: (False, "continue")
     pm.save_version = lambda **kwargs: None
     pm.ewc_constrained_rollback = lambda **kwargs: kwargs.get("new_prompt", "")
     return pm
+
+
+def test_evaluate_final_uses_cached_baseline(mocker) -> None:
+    """evaluate_final_node must not call _run_evaluation for the baseline
+    when cached_baseline_eval is already present in state."""
+    cached = [
+        {"file_path": "data/training_bugs/bug_001.py", "reward": 0.5,
+         "precision": 0.5, "recall": 0.5, "f1": 0.5},
+    ]
+    run_eval_mock = mocker.patch(
+        "src.specialization.graphs._run_evaluation",
+        return_value=[],
+    )
+
+    from src.specialization.graphs import evaluate_final_node
+    state: dict = {
+        "stem_config": {"system_prompt": "Base prompt."},
+        "final_prompt": "Specialised prompt.",
+        "cached_baseline_eval": cached,
+        "condition": "sft",
+        "performance_history": [],
+    }
+    evaluate_final_node(state)
+
+    calls = [call.args[0] for call in run_eval_mock.call_args_list]
+    assert "Base prompt." not in calls, (
+        "_run_evaluation was called with baseline prompt despite cached_baseline_eval being set"
+    )
+    assert run_eval_mock.call_count == 1, (
+        "Expected exactly one _run_evaluation call (for specialised prompt), got "
+        f"{run_eval_mock.call_count}"
+    )

@@ -7,7 +7,7 @@ from pathlib import Path
 import structlog
 from langgraph.types import Send
 
-from src.specialization.llm_factory import get_llm_client
+from src.specialization.llm_factory import get_llm_client, get_max_tokens
 from src.specialization.models import (
     prompt_manager_from_dict,
     prompt_manager_to_dict,
@@ -114,7 +114,7 @@ def review_code_batch(state: RLState) -> dict:
         LLMMessage(role="system", content=system),
         LLMMessage(role="user", content=f"FILE: {os.path.basename(file_path)}\n\n{code}"),
     ]
-    raw = client.complete_json(messages)
+    raw = client.complete_json(messages, max_tokens=get_max_tokens("agent_review"))
 
     review: AgentReview = {
         "file_path": file_path,
@@ -264,7 +264,7 @@ def lazy_gradient(state: RLState) -> dict:
         LLMMessage(role="system", content=_GRADIENT_SYSTEM),
         LLMMessage(role="user", content=user_content),
     ]
-    gradient = client.complete_json(messages)
+    gradient = client.complete_json(messages, max_tokens=get_max_tokens("gradient"))
     logger.info("rl.lazy_gradient.recomputed", iteration=iteration, confidence=gradient.get("confidence"))
     return {"last_verbal_gradient": gradient}
 
@@ -304,7 +304,7 @@ def generate_variant(state: VariantState) -> dict:
     messages = [
         LLMMessage(role="user", content=user_content),
     ]
-    raw = client.complete(messages, temperature=temperature)
+    raw = client.complete(messages, temperature=temperature, max_tokens=get_max_tokens("variant_gen"))
 
     try:
         parsed = json.loads(raw.content)
@@ -322,7 +322,81 @@ def generate_variant(state: VariantState) -> dict:
     return {"variant_results": [result]}
 
 
+def _score_variant(
+    variant: VariantResult,
+    batches: list[list[str]],
+    ground_truth_map: dict[str, dict],
+    current_score: float,
+    best_score_ref: list[float],
+) -> VariantResult:
+    """Score a single variant against all validation batches.
+
+    best_score_ref is a mutable single-element list shared across concurrent calls
+    so that early-exit logic can be applied without locks (reads are safe; the
+    worst case is a missed skip, not a crash).
+    """
+    if best_score_ref[0] >= current_score + EARLY_EXIT_DELTA:
+        logger.info(
+            "rl.score_variant.early_exit",
+            variant_id=variant["variant_id"],
+            best=best_score_ref[0],
+        )
+        return variant
+
+    all_rewards: list[float] = []
+    client = get_llm_client("agent_review")
+
+    for batch in batches:
+        codes_block = "\n\n---\n\n".join(
+            f"FILE {j + 1}: {os.path.basename(p)}\n{_safe_read(p)}"
+            for j, p in enumerate(batch)
+        )
+        system = _BATCH_REVIEW_SYSTEM_TEMPLATE.format(
+            system_prompt=variant["prompt"],
+            count=len(batch),
+        )
+        messages = [
+            LLMMessage(role="system", content=system),
+            LLMMessage(role="user", content=codes_block),
+        ]
+        raw = client.complete_json(messages, max_tokens=get_max_tokens("agent_review"))
+        reviews = raw.get("reviews", [])
+
+        for k, _review_dict in enumerate(reviews):
+            if k >= len(batch):
+                break
+            file_path = batch[k]
+            gt_dict = ground_truth_map.get(file_path)
+            if gt_dict is None:
+                continue
+            from src.verifier.models import GroundTruth
+            gt = GroundTruth(
+                file_path=gt_dict["file_path"],
+                bug_type=gt_dict["bug_type"],
+                bug_line=int(gt_dict["bug_line"]),
+                bug_description=gt_dict.get("bug_description", ""),
+                detectable_by_pylint=bool(gt_dict.get("detectable_by_pylint", False)),
+                detectable_by_ast=bool(gt_dict.get("detectable_by_ast", False)),
+                detectable_by_execution=bool(gt_dict.get("detectable_by_execution", False)),
+            )
+            code = _safe_read(file_path)
+            result = pipeline.run_all_verifiers(code, gt)
+            all_rewards.append(result.shaped_reward)
+
+    score = sum(all_rewards) / len(all_rewards) if all_rewards else 0.0
+    if score > best_score_ref[0]:
+        best_score_ref[0] = score
+
+    return VariantResult(
+        variant_id=variant["variant_id"],
+        prompt=variant["prompt"],
+        temperature=variant["temperature"],
+        score=score,
+    )
+
+
 def evaluate_batch(state: RLState) -> dict:
+    """Score all 3 variants in parallel against the validation set."""
     if len(state["variant_results"]) < 3:
         return {}
 
@@ -336,71 +410,41 @@ def evaluate_batch(state: RLState) -> dict:
         for i in range(0, len(validation_files), VALIDATION_BATCH_SIZE)
     ]
     ground_truth_map = _load_ground_truth()
-
     current_score = state["performance_history"][-1] if state["performance_history"] else 0.0
-    best_score = current_score
 
-    scored_variants: list[VariantResult] = []
-    for variant in list(state["variant_results"]):
-        if best_score >= current_score + EARLY_EXIT_DELTA and scored_variants:
-            scored_variants.append(variant)
-            continue
+    best_score_ref: list[float] = [current_score]
 
-        all_rewards: list[float] = []
-        client = get_llm_client("agent_review")
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import functools
 
-        for batch in batches:
-            codes_block = "\n\n---\n\n".join(
-                f"FILE {j + 1}: {os.path.basename(p)}\n{_safe_read(p)}"
-                for j, p in enumerate(batch)
-            )
-            system = _BATCH_REVIEW_SYSTEM_TEMPLATE.format(
-                system_prompt=variant["prompt"],
-                count=len(batch),
-            )
-            messages = [
-                LLMMessage(role="system", content=system),
-                LLMMessage(role="user", content=codes_block),
-            ]
-            raw = client.complete_json(messages)
-            reviews = raw.get("reviews", [])
+    variants = list(state["variant_results"])
+    score_fn = functools.partial(
+        _score_variant,
+        batches=batches,
+        ground_truth_map=ground_truth_map,
+        current_score=current_score,
+        best_score_ref=best_score_ref,
+    )
 
-            for k, review_dict in enumerate(reviews):
-                if k >= len(batch):
-                    break
-                file_path = batch[k]
-                gt_dict = ground_truth_map.get(file_path)
-                if gt_dict is None:
-                    continue
-                from src.verifier.models import GroundTruth
-                gt = GroundTruth(
-                    file_path=gt_dict["file_path"],
-                    bug_type=gt_dict["bug_type"],
-                    bug_line=int(gt_dict["bug_line"]),
-                    bug_description=gt_dict.get("bug_description", ""),
-                    detectable_by_pylint=bool(gt_dict.get("detectable_by_pylint", False)),
-                    detectable_by_ast=bool(gt_dict.get("detectable_by_ast", False)),
-                    detectable_by_execution=bool(gt_dict.get("detectable_by_execution", False)),
+    scored_variants: list[VariantResult] = [None] * len(variants)  # type: ignore[list-item]
+    with ThreadPoolExecutor(max_workers=len(variants)) as pool:
+        future_to_idx = {pool.submit(score_fn, v): i for i, v in enumerate(variants)}
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            try:
+                scored_variants[idx] = future.result()
+            except Exception as exc:
+                logger.warning(
+                    "rl.evaluate_batch.worker_error",
+                    variant_id=variants[idx]["variant_id"],
+                    error=str(exc),
                 )
-                code = _safe_read(file_path)
-                result = pipeline.run_all_verifiers(code, gt)
-                all_rewards.append(result.shaped_reward)
-
-        score = sum(all_rewards) / len(all_rewards) if all_rewards else 0.0
-        scored: VariantResult = {
-            "variant_id": variant["variant_id"],
-            "prompt": variant["prompt"],
-            "temperature": variant["temperature"],
-            "score": score,
-        }
-        scored_variants.append(scored)
-        if score > best_score:
-            best_score = score
+                scored_variants[idx] = variants[idx]
 
     logger.info(
         "rl.evaluate_batch.done",
         variants=len(scored_variants),
-        best_score=best_score,
+        best_score=best_score_ref[0],
     )
     return {"variant_results": scored_variants}
 

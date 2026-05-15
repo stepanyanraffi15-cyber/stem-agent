@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 import structlog
 
@@ -12,8 +13,9 @@ from src.stem.models import LLMMessage, Skill
 
 logger = structlog.get_logger(__name__)
 
-TRAINING_BUGS_DIR = "data/training_bugs"
-GROUND_TRUTH_PATH = "data/ground_truth.json"
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+TRAINING_BUGS_DIR = str(_PROJECT_ROOT / "data" / "training_bugs")
+GROUND_TRUTH_PATH = str(_PROJECT_ROOT / "data" / "ground_truth.json")
 DEMONSTRATIONS_COUNT = 20
 
 _EXTRACT_SYSTEM = (
@@ -90,7 +92,7 @@ def extract_patterns(state: SFTState) -> dict:
         LLMMessage(role="user", content=user_content),
     ]
     response = client.complete_json(messages)
-    patterns = response.get("patterns", [])
+    patterns = response if isinstance(response, list) else response.get("patterns", [])
 
     logger.info("sft.extract_patterns", count=len(patterns))
     return {"extracted_patterns": patterns}
@@ -112,7 +114,7 @@ def constitutional_critique(state: SFTState) -> dict:
         LLMMessage(role="user", content=user_content),
     ]
     response = client.complete_json(messages)
-    revised = response.get("patterns", state["extracted_patterns"])
+    revised = response if isinstance(response, list) else response.get("patterns", state["extracted_patterns"])
 
     logger.info("sft.constitutional_critique", count=len(revised))
     return {"critiqued_patterns": revised}

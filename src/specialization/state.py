@@ -94,6 +94,8 @@ class OuterState(TypedDict):
     condition: str
     final_prompt: str | None
     evaluation_results: dict | None
+    # pre-computed baseline results — avoids re-running baseline inside evaluate_final_node
+    cached_baseline_eval: list[dict] | None
     # sft-specific
     demonstrations: list[str] | None
     extracted_patterns: list[str] | None

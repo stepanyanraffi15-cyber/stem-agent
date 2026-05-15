@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import functools
 import json
 import os
 from datetime import datetime
@@ -29,7 +30,8 @@ from src.evaluation.benchmark import (
     save_results,
 )
 from src.evaluation.metrics import ConditionResult, ExperimentResult, FileScore
-from src.specialization.llm_factory import get_llm_client
+from src.specialization.llm_factory import get_llm_client, get_max_tokens
+from src.specialization.parallel import parallel_score_files
 from src.specialization.runner import ExperimentRunner
 from src.stem.agent import StemAgent
 from src.stem.llm_client import LLMClient
@@ -85,16 +87,69 @@ def _load_ground_truth() -> dict[str, dict]:
     return {r["file_path"]: r for r in records if "file_path" in r}
 
 
-def run_baseline(
-    stem_config: dict,
+def _score_baseline_file(
+    file_path: str,
+    review_system: str,
     llm_client: LLMClient,
-) -> list[FileScore]:
-    """Run agent with baseline stem prompt on all files. No LangGraph."""
+    gt_map: dict[str, dict],
+) -> dict | None:
+    """Score one file for the baseline condition. Returns None if file should be skipped."""
     from src.specialization.state import AgentReview
     from src.stem.models import LLMMessage
     from src.verifier import pipeline
     from src.verifier.models import GroundTruth
+
+    gt_dict = gt_map.get(file_path)
+    if gt_dict is None:
+        return None
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            code = f.read()
+    except OSError:
+        return None
+
+    gt = GroundTruth(
+        file_path=gt_dict["file_path"],
+        bug_type=gt_dict["bug_type"],
+        bug_line=int(gt_dict["bug_line"]),
+        bug_description=gt_dict.get("bug_description", ""),
+        detectable_by_pylint=bool(gt_dict.get("detectable_by_pylint", False)),
+        detectable_by_ast=bool(gt_dict.get("detectable_by_ast", False)),
+        detectable_by_execution=bool(gt_dict.get("detectable_by_execution", False)),
+    )
+
+    messages = [
+        LLMMessage(role="system", content=review_system),
+        LLMMessage(role="user", content=code),
+    ]
+    try:
+        raw = llm_client.complete_json(messages, max_tokens=get_max_tokens("agent_review"))
+    except Exception as exc:
+        log.warning("baseline.llm_error", path=file_path, error=str(exc))
+        return None
+
+    verifier_out = pipeline.run_all_verifiers(code, gt)
+    return {
+        "file_path": file_path,
+        "issues": raw.get("issues", []),
+        "overall_confidence": float(raw.get("overall_confidence", 0.0)),
+        "summary": raw.get("summary", ""),
+        "reward": verifier_out.shaped_reward,
+        "_gt": gt,
+    }
+
+
+def run_baseline(
+    stem_config: dict,
+    llm_client: LLMClient,
+) -> tuple[list[FileScore], list[dict]]:
+    """Run agent with baseline stem prompt on all files in parallel.
+
+    Returns both FileScore list (for benchmark) and raw eval dicts
+    (for caching in evaluate_final_node).
+    """
     from src.evaluation.metrics import precision_recall_f1
+    from src.verifier.models import GroundTruth
 
     system_prompt: str = stem_config.get("system_prompt", "")
     review_system = (
@@ -110,50 +165,36 @@ def run_baseline(
     all_files = training_files + held_out_files
     gt_map = _load_ground_truth()
 
+    score_fn = functools.partial(
+        _score_baseline_file,
+        review_system=review_system,
+        llm_client=llm_client,
+        gt_map=gt_map,
+    )
+    raw_results = parallel_score_files(score_fn, all_files)
+
     agent_reviews: list[dict] = []
     ground_truths: list[GroundTruth] = []
-
-    for file_path in all_files:
-        gt_dict = gt_map.get(file_path)
-        if gt_dict is None:
-            continue
-        try:
-            with open(file_path, encoding="utf-8") as f:
-                code = f.read()
-        except OSError:
-            continue
-
-        gt = GroundTruth(
-            file_path=gt_dict["file_path"],
-            bug_type=gt_dict["bug_type"],
-            bug_line=int(gt_dict["bug_line"]),
-            bug_description=gt_dict.get("bug_description", ""),
-            detectable_by_pylint=bool(gt_dict.get("detectable_by_pylint", False)),
-            detectable_by_ast=bool(gt_dict.get("detectable_by_ast", False)),
-            detectable_by_execution=bool(gt_dict.get("detectable_by_execution", False)),
-        )
-
-        messages = [
-            LLMMessage(role="system", content=review_system),
-            LLMMessage(role="user", content=code),
-        ]
-        try:
-            raw = llm_client.complete_json(messages)
-        except Exception as exc:
-            log.warning("baseline.llm_error", path=file_path, error=str(exc))
-            continue
-
-        verifier_out = pipeline.run_all_verifiers(code, gt)
-        agent_reviews.append({
-            "file_path": file_path,
-            "issues": raw.get("issues", []),
-            "overall_confidence": float(raw.get("overall_confidence", 0.0)),
-            "summary": raw.get("summary", ""),
-            "reward": verifier_out.shaped_reward,
-        })
+    for r in raw_results:
+        gt = r.pop("_gt")
+        agent_reviews.append(r)
         ground_truths.append(gt)
 
-    return precision_recall_f1(agent_reviews, ground_truths)
+    file_scores = precision_recall_f1(agent_reviews, ground_truths)
+
+    eval_dicts = [
+        {
+            "file_path": r["file_path"],
+            "reward": r["reward"],
+            "precision": s.precision,
+            "recall": s.recall,
+            "f1": s.f1,
+        }
+        for r, s in zip(agent_reviews, file_scores)
+    ]
+
+    log.info("baseline.done", n_files=len(file_scores))
+    return file_scores, eval_dicts
 
 
 def _extract_skill_snapshots(
@@ -221,133 +262,37 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
-    """Orchestrate the full experiment pipeline."""
-    args = _parse_args()
-    condition: str = args.condition
-    max_iterations: int = 3 if args.fast else args.iterations
-    timestamp_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
-    experiment_id: str = args.experiment_id or f"{timestamp_prefix}_{condition}"
-
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-
-    _panel(f"stem-agent experiment | id={experiment_id} | condition={condition}", "bold magenta")
-
-    if args.skip_stem:
-        _panel("Loading cached stem phase output...", "white")
-        task_theory, stem_config, uncertainty_priors = _load_stem_cache()
-        log.info("stem.loaded_from_cache")
-    else:
-        _panel("🌱 Stem phase: agent self-configuration...", "bright_magenta")
-        stem_llm = get_llm_client("stem_phase")
-        agent = StemAgent(llm_client=stem_llm)
-        theory_obj, config_obj, priors_list = agent.run_stem_phase()
-        task_theory = dataclasses.asdict(theory_obj, dict_factory=lambda x: {
-            k: v.isoformat() if hasattr(v, "isoformat") else v for k, v in x
-        })
-        stem_config = dataclasses.asdict(config_obj, dict_factory=lambda x: {
-            k: v.isoformat() if hasattr(v, "isoformat") else v for k, v in x
-        })
-        uncertainty_priors = [dataclasses.asdict(p) for p in priors_list]
-        _save_stem_output(task_theory, stem_config, uncertainty_priors)
-
-    baseline_prompt: str = stem_config.get("system_prompt", "")
-    review_client = get_llm_client("agent_review")
-
-    sft_final_prompt = baseline_prompt
-    rl_final_prompt = baseline_prompt
-    rl_performance_history: list[float] = []
-    rl_skill_snapshots: list[dict] = []
-    rl_rollback_events: list[dict] = []
-
-    baseline_scores: list[FileScore] = []
-    sft_file_scores: list[FileScore] = []
-    rl_file_scores: list[FileScore] = []
-
-    if condition in ("baseline", "all"):
-        _panel("Running baseline (no specialization)...", "white")
-        baseline_scores = run_baseline(stem_config, review_client)
-        log.info("baseline.done", n_files=len(baseline_scores))
-
-    runner: ExperimentRunner | None = None
-
-    if condition in ("sft", "all"):
-        _panel("📚 Condition A (SFT): demonstration-based specialization...", "cyan")
-        sft_id = f"{experiment_id}_sft"
-        runner = ExperimentRunner()
-        sft_state = runner.run(
-            condition="sft",
-            task_theory=task_theory,
-            stem_config=stem_config,
-            uncertainty_priors=uncertainty_priors,
-            experiment_id=sft_id,
-            max_iterations=max_iterations,
-        )
-        sft_final_prompt = sft_state.get("final_prompt") or baseline_prompt
-        (RESULTS_DIR / "sft_final_prompt.txt").write_text(sft_final_prompt, encoding="utf-8")
-
-        eval_results = sft_state.get("evaluation_results") or {}
-        sft_file_scores = _scores_from_eval_results(eval_results, "sft")
-        log.info("sft.done", prompt_length=len(sft_final_prompt))
-
-    if condition in ("rl", "all"):
-        _panel("🔄 Condition B (RL): outcome-based specialization...", "bright_green")
-        rl_id = f"{experiment_id}_rl"
-        if runner is None:
-            runner = ExperimentRunner()
-        rl_state = runner.run(
-            condition="rl",
-            task_theory=task_theory,
-            stem_config=stem_config,
-            uncertainty_priors=uncertainty_priors,
-            experiment_id=rl_id,
-            max_iterations=max_iterations,
-        )
-        rl_final_prompt = rl_state.get("final_prompt") or baseline_prompt
-        rl_performance_history = rl_state.get("performance_history") or []
-        rl_rollback_events = rl_state.get("rollback_events") or []
-        rl_skill_snapshots = _extract_skill_snapshots(runner, rl_id)
-
-        (RESULTS_DIR / "rl_final_prompt.txt").write_text(rl_final_prompt, encoding="utf-8")
-        with open(RESULTS_DIR / "rl_performance_history.json", "w", encoding="utf-8") as f:
-            json.dump(rl_performance_history, f, indent=2)
-        with open(RESULTS_DIR / "rl_rollback_events.json", "w", encoding="utf-8") as f:
-            json.dump(rl_rollback_events, f, indent=2)
-
-        eval_results = rl_state.get("evaluation_results") or {}
-        rl_file_scores = _scores_from_eval_results(eval_results, "rl")
-        log.info("rl.done", prompt_length=len(rl_final_prompt))
-
-    _panel("📊 Evaluation: running benchmark...", "bright_blue")
-    result = run_full_benchmark(
-        baseline_prompt=baseline_prompt,
-        sft_final_prompt=sft_final_prompt,
-        rl_final_prompt=rl_final_prompt,
-        rl_performance_history=rl_performance_history,
-        rl_skill_snapshots=rl_skill_snapshots,
-        llm_client=review_client,
-        output_path=str(RESULTS_DIR / "benchmark_results.json"),
-        baseline_file_scores=baseline_scores,
-        sft_file_scores=sft_file_scores,
-        rl_file_scores=rl_file_scores,
-    )
-
-    print_comparison_table(result)
-
-    table_path = RESULTS_DIR / "comparison_table.txt"
-    with open(table_path, "w", encoding="utf-8") as f:
-        from rich.console import Console as _C
-        capture = _C(file=f, width=120)
-        from src.evaluation.benchmark import print_comparison_table as _pct
-        _pct.__globals__["CONSOLE"] = capture
-        _pct(result)
-
-    _panel(f"✅ Complete. Results saved to {RESULTS_DIR}/", "bright_green")
+def _build_initial_state(
+    condition: str,
+    task_theory: dict,
+    stem_config: dict,
+    uncertainty_priors: list[dict],
+    experiment_id: str,
+    max_iterations: int,
+    cached_baseline_eval: list[dict] | None,
+) -> dict:
+    """Build the OuterState dict for a single condition run."""
+    return {
+        "task_theory": task_theory,
+        "stem_config": stem_config,
+        "uncertainty_priors": uncertainty_priors,
+        "experiment_id": experiment_id,
+        "condition": condition,
+        "final_prompt": None,
+        "evaluation_results": None,
+        "cached_baseline_eval": cached_baseline_eval,
+        "demonstrations": None,
+        "extracted_patterns": None,
+        "critiqued_patterns": None,
+        "rewrite_reasoning": None,
+        "skill_library": None,
+        "performance_history": None,
+        "max_iterations": max_iterations,
+    }
 
 
 def _scores_from_eval_results(eval_results: dict, condition: str) -> list[FileScore]:
     """Convert evaluate_final_node result dict into FileScore list."""
-    from src.evaluation.metrics import FileScore
     scores: list[FileScore] = []
     spec = eval_results.get("specialized", {})
     if not spec:
@@ -378,6 +323,151 @@ def _scores_from_eval_results(eval_results: dict, condition: str) -> list[FileSc
         is_silent_failure=(silent > 0),
     ))
     return scores
+
+
+def main() -> None:
+    """Orchestrate the full experiment pipeline."""
+    args = _parse_args()
+    condition: str = args.condition
+    max_iterations: int = 3 if args.fast else args.iterations
+    timestamp_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
+    experiment_id: str = args.experiment_id or f"{timestamp_prefix}_{condition}"
+
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    _panel(f"stem-agent experiment | id={experiment_id} | condition={condition}", "bold magenta")
+
+    if args.skip_stem:
+        _panel("Loading cached stem phase output...", "white")
+        task_theory, stem_config, uncertainty_priors = _load_stem_cache()
+        log.info("stem.loaded_from_cache")
+    else:
+        _panel("Stem phase: agent self-configuration...", "bright_magenta")
+        stem_llm = get_llm_client("stem_phase")
+        agent = StemAgent(llm_client=stem_llm)
+        theory_obj, config_obj, priors_list = agent.run_stem_phase()
+        task_theory = dataclasses.asdict(theory_obj, dict_factory=lambda x: {
+            k: v.isoformat() if hasattr(v, "isoformat") else v for k, v in x
+        })
+        stem_config = dataclasses.asdict(config_obj, dict_factory=lambda x: {
+            k: v.isoformat() if hasattr(v, "isoformat") else v for k, v in x
+        })
+        uncertainty_priors = [dataclasses.asdict(p) for p in priors_list]
+        _save_stem_output(task_theory, stem_config, uncertainty_priors)
+
+    baseline_prompt: str = stem_config.get("system_prompt", "")
+    review_client = get_llm_client("agent_review")
+
+    sft_final_prompt = baseline_prompt
+    rl_final_prompt = baseline_prompt
+    rl_performance_history: list[float] = []
+    rl_skill_snapshots: list[dict] = []
+    rl_rollback_events: list[dict] = []
+
+    baseline_file_scores: list[FileScore] = []
+    sft_file_scores: list[FileScore] = []
+    rl_file_scores: list[FileScore] = []
+
+    cached_baseline_eval: list[dict] | None = None
+
+    if condition in ("baseline", "all"):
+        _panel("Running baseline (no specialization)...", "white")
+        baseline_file_scores, cached_baseline_eval = run_baseline(stem_config, review_client)
+
+    runner: ExperimentRunner | None = None
+
+    if condition in ("sft", "all"):
+        _panel("Condition A (SFT): demonstration-based specialization...", "cyan")
+        sft_id = f"{experiment_id}_sft"
+        runner = ExperimentRunner()
+        sft_initial = _build_initial_state(
+            condition="sft",
+            task_theory=task_theory,
+            stem_config=stem_config,
+            uncertainty_priors=uncertainty_priors,
+            experiment_id=sft_id,
+            max_iterations=max_iterations,
+            cached_baseline_eval=cached_baseline_eval,
+        )
+        sft_state = runner.run(
+            condition="sft",
+            task_theory=task_theory,
+            stem_config=stem_config,
+            uncertainty_priors=uncertainty_priors,
+            experiment_id=sft_id,
+            max_iterations=max_iterations,
+            initial_state=sft_initial,
+        )
+        sft_final_prompt = sft_state.get("final_prompt") or baseline_prompt
+        (RESULTS_DIR / "sft_final_prompt.txt").write_text(sft_final_prompt, encoding="utf-8")
+
+        eval_results = sft_state.get("evaluation_results") or {}
+        sft_file_scores = _scores_from_eval_results(eval_results, "sft")
+        log.info("sft.done", prompt_length=len(sft_final_prompt))
+
+    if condition in ("rl", "all"):
+        _panel("Condition B (RL): outcome-based specialization...", "bright_green")
+        rl_id = f"{experiment_id}_rl"
+        if runner is None:
+            runner = ExperimentRunner()
+        rl_initial = _build_initial_state(
+            condition="rl",
+            task_theory=task_theory,
+            stem_config=stem_config,
+            uncertainty_priors=uncertainty_priors,
+            experiment_id=rl_id,
+            max_iterations=max_iterations,
+            cached_baseline_eval=cached_baseline_eval,
+        )
+        rl_state = runner.run(
+            condition="rl",
+            task_theory=task_theory,
+            stem_config=stem_config,
+            uncertainty_priors=uncertainty_priors,
+            experiment_id=rl_id,
+            max_iterations=max_iterations,
+            initial_state=rl_initial,
+        )
+        rl_final_prompt = rl_state.get("final_prompt") or baseline_prompt
+        rl_performance_history = rl_state.get("performance_history") or []
+        rl_rollback_events = rl_state.get("rollback_events") or []
+        rl_skill_snapshots = _extract_skill_snapshots(runner, rl_id)
+
+        (RESULTS_DIR / "rl_final_prompt.txt").write_text(rl_final_prompt, encoding="utf-8")
+        with open(RESULTS_DIR / "rl_performance_history.json", "w", encoding="utf-8") as f:
+            json.dump(rl_performance_history, f, indent=2)
+        with open(RESULTS_DIR / "rl_rollback_events.json", "w", encoding="utf-8") as f:
+            json.dump(rl_rollback_events, f, indent=2)
+
+        eval_results = rl_state.get("evaluation_results") or {}
+        rl_file_scores = _scores_from_eval_results(eval_results, "rl")
+        log.info("rl.done", prompt_length=len(rl_final_prompt))
+
+    _panel("Evaluation: running benchmark...", "bright_blue")
+    result = run_full_benchmark(
+        baseline_prompt=baseline_prompt,
+        sft_final_prompt=sft_final_prompt,
+        rl_final_prompt=rl_final_prompt,
+        rl_performance_history=rl_performance_history,
+        rl_skill_snapshots=rl_skill_snapshots,
+        llm_client=review_client,
+        output_path=str(RESULTS_DIR / "benchmark_results.json"),
+        baseline_file_scores=baseline_file_scores,
+        sft_file_scores=sft_file_scores,
+        rl_file_scores=rl_file_scores,
+    )
+
+    print_comparison_table(result)
+
+    table_path = RESULTS_DIR / "comparison_table.txt"
+    with open(table_path, "w", encoding="utf-8") as f:
+        from rich.console import Console as _C
+        capture = _C(file=f, width=120)
+        from src.evaluation.benchmark import print_comparison_table as _pct
+        _pct.__globals__["CONSOLE"] = capture
+        _pct(result)
+
+    _panel(f"Complete. Results saved to {RESULTS_DIR}/", "bright_green")
 
 
 if __name__ == "__main__":

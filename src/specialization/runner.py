@@ -28,7 +28,14 @@ class ExperimentRunner:
         uncertainty_priors: list[dict],
         experiment_id: str,
         max_iterations: int = 15,
+        initial_state: OuterState | None = None,
     ) -> dict:
+        """Run one condition through the outer graph.
+
+        initial_state allows callers to inject pre-computed fields (e.g.
+        cached_baseline_eval) without duplicating LLM calls. When None, a
+        default OuterState is built from the explicit keyword arguments.
+        """
         if condition not in ("sft", "rl"):
             raise ValueError(f"condition must be 'sft' or 'rl', got {condition!r}")
         if not experiment_id:
@@ -43,22 +50,25 @@ class ExperimentRunner:
                 "project": "stem-agent",
             },
         }
-        initial_state: OuterState = {
-            "task_theory": task_theory,
-            "stem_config": stem_config,
-            "uncertainty_priors": uncertainty_priors,
-            "experiment_id": experiment_id,
-            "condition": condition,
-            "final_prompt": None,
-            "evaluation_results": None,
-            "demonstrations": None,
-            "extracted_patterns": None,
-            "critiqued_patterns": None,
-            "rewrite_reasoning": None,
-            "skill_library": None,
-            "performance_history": None,
-            "max_iterations": max_iterations,
-        }
+
+        if initial_state is None:
+            initial_state = OuterState(
+                task_theory=task_theory,
+                stem_config=stem_config,
+                uncertainty_priors=uncertainty_priors,
+                experiment_id=experiment_id,
+                condition=condition,
+                final_prompt=None,
+                evaluation_results=None,
+                cached_baseline_eval=None,
+                demonstrations=None,
+                extracted_patterns=None,
+                critiqued_patterns=None,
+                rewrite_reasoning=None,
+                skill_library=None,
+                performance_history=None,
+                max_iterations=max_iterations,
+            )
 
         final_state: dict = {}
         for chunk in self.graph.stream(initial_state, config=config, stream_mode="values"):

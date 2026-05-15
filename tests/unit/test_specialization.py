@@ -356,3 +356,38 @@ def test_finalize_rl_maps_current_to_final_prompt() -> None:
     state = _base_rl_state(current_prompt="Optimized system prompt.")
     result = finalize_rl(state)
     assert result["final_prompt"] == "Optimized system prompt."
+
+
+def test_evaluate_batch_parallel_equivalent_to_sequential(mocker, tmp_path) -> None:
+    validation_dir = tmp_path / "data" / "validation"
+    validation_dir.mkdir(parents=True)
+    for i in range(6):
+        (validation_dir / f"file_{i}.py").write_text(f"def fn_{i}(): pass")
+
+    mocker.patch("src.specialization.nodes_rl.VALIDATION_DIR", str(validation_dir))
+    mocker.patch("src.specialization.nodes_rl._load_ground_truth", return_value={})
+
+    call_counts: list[int] = []
+
+    def side_effect(*_args, **_kwargs):
+        call_counts.append(1)
+        return {"reviews": []}
+
+    mock_client = mocker.MagicMock()
+    mock_client.complete_json.side_effect = side_effect
+    mocker.patch("src.specialization.nodes_rl.get_llm_client", return_value=mock_client)
+
+    variants: list[VariantResult] = [
+        {"variant_id": 0, "prompt": "p0", "temperature": 0.6, "score": 0.0},
+        {"variant_id": 1, "prompt": "p1", "temperature": 0.9, "score": 0.0},
+        {"variant_id": 2, "prompt": "p2", "temperature": 1.2, "score": 0.0},
+    ]
+    state = _base_rl_state(variant_results=variants, performance_history=[0.5])
+
+    from src.specialization.nodes_rl import evaluate_batch
+    result = evaluate_batch(state)
+
+    scored = result["variant_results"]
+    assert len(scored) == 3
+    assert all(v["variant_id"] in (0, 1, 2) for v in scored)
+    assert sum(call_counts) == 3 * 2
